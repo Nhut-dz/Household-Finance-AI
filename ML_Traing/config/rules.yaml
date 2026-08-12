@@ -1,0 +1,52 @@
+# Configuration for F02 - Rule-Based Financial Analysis Engine
+# All thresholds contain source citations per PLAN.md §5 requirements
+
+thresholds:
+  rb01_cashflow:
+    description: "Cấu hình phân loại dòng tiền thặng dư/thâm hụt"
+    source: "Kế toán tài chính hộ gia đình chuẩn"
+    zero_tolerance: 0  # Thu nhập == Chi tiêu -> BALANCED
+
+  rb02_health:
+    description: "Ngưỡng đánh giá sức khỏe tài chính tổng hợp (DTI, Quỹ dự phòng, Tỷ lệ tiết kiệm)"
+    sources:
+      dti: "CFP Board / US Federal Reserve (DTI <= 36% an toàn, > 50% rủi ro cao)"
+      emergency_months: "Tổ chức Quản lý Tài chính Cá nhân (3-6 tháng chi tiêu sinh hoạt)"
+      savings_rate: "Tiêu chuẩn tiết kiệm tối thiểu (10% - 20% thu nhập)"
+    dti:
+      excellent_max: 0.20
+      good_max: 0.36
+      warning_max: 0.50
+    emergency_months:
+      critical_less: 1.0
+      warning_less: 3.0
+      good_min: 3.0
+      excellent_min: 6.0
+    savings_rate:
+      critical_less: 0.0
+      warning_less: 0.10
+      good_min: 0.10
+      excellent_min: 0.20
+
+  rb03_savings_goal:
+    description: "Ngưỡng tiến độ thực hiện mục tiêu tiết kiệm"
+    source: "Quy tắc phân bổ dòng tiền khả dụng"
+    max_surplus_allocation_ratio: 0.80  # Tối đa 80% số dư thặng dư dùng tích lũy mục tiêu
+    default_timeline_months: 12
+
+  rb04_503020:
+    description: "Tỷ lệ phân bổ ngân sách 50/30/20 đề xuất từ thu nhập"
+    source: "Quy tắc quản lý tài chính cá nhân 50/30/20 Elizabeth Warren"
+    needs_ratio: 0.50   # 50% Thu nhập dành cho Nhu cầu thiết yếu
+    wants_ratio: 0.30   # 30% Thu nhập dành cho Cá nhân & Giải trí
+    savings_ratio: 0.20 # 20% Thu nhập dành cho Tiết kiệm & Tích lũy
+
+  rb05_loan_capacity:
+    description: "Ngưỡng hạn mức nợ & khả năng gánh nợ tối đa"
+    sources:
+      dti: "Ngân hàng Thương mại Việt Nam & NHNN (DTI tối đa 40% thu nhập)"
+      ltv: "Tỷ lệ cho vay trên giá trị tài sản thế chấp (LTV <= 70% mua nhà/xe)"
+      interest: "Lãi suất vay trung bình tham chiếu 10%/năm"
+    max_dti: 0.40
+    max_ltv: 0.70
+    assumed_annual_interest_rate: 0.10

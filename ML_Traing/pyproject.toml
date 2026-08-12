@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hfml"
+version = "0.2.0"
+description = "Household Finance ML — pipeline Rule-Based + ML + LLM tư vấn tài chính hộ gia đình"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    # Vòng train đầy đủ: 20.000 hộ × 5 fold × 5 thuật toán. Bỏ qua lúc lặp
+    # nhanh bằng `pytest -m "not slow"`, nhưng PHẢI chạy trước khi commit —
+    # đây là chỗ duy nhất ba cổng kiểm chứng của PLAN.md §6.2 được kiểm.
+    "slow: vòng train đầy đủ, tính bằng phút",
+]

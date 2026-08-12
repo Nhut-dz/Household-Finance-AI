@@ -1,0 +1,32 @@
+# Cấu hình mặc định (env override qua HFML_*). Xem src/hfml/config.py.
+# Ngưỡng của tầng rule nằm ở config/rules.yaml, không phải ở đây.
+
+random_seed: 42
+
+# max(predict_proba) dưới ngưỡng này → hạ cấp xuống kết luận rule,
+# đánh dấu low_confidence: true trong structured result (PLAN.md §8.1).
+confidence_threshold: 0.60
+
+# Nguồn dữ liệu nghiệp vụ: PostgreSQL Household_Finance_V2_Dev (pgAdmin 4).
+# Password KHÔNG để ở đây — đặt trong .env qua HFML_DB_PASSWORD.
+# Server dev local trust auth nên password rỗng vẫn kết nối được.
+database:
+  host: 127.0.0.1
+  port: 5432
+  name: Household_Finance_V2_Dev
+  user: postgres
+
+training:
+  n_splits: 5
+  test_size: 0.2
+
+logging:
+  level: INFO           # DEBUG khi cần soi; override bằng HFML_LOG_LEVEL
+  console: true
+  file: logs/hfml.log   # xoay vòng 5 MB × 3 file, UTF-8
+
+llm:
+  model: gemini-3.6-flash
+  max_tokens: 1500
+  # Nhiệt độ thấp: tầng llm chỉ diễn đạt lại JSON, không cần sáng tạo.
+  temperature: 0.3

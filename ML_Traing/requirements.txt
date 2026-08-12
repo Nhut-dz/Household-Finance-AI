@@ -1,0 +1,28 @@
+# Core ML
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.4
+joblib>=1.3
+xgboost>=2.0            # đại diện nhóm Boosting (PLAN.md §6.3)
+
+# Đánh giá & giải thích
+matplotlib>=3.8         # confusion matrix, PR curve, calibration curve
+shap>=0.44              # SHAP summary (global) + local top-5 cho ML02
+
+# Config & validation
+pydantic>=2.6
+PyYAML>=6.0
+
+# Nguồn dữ liệu nghiệp vụ: PostgreSQL Household_Finance_V2_Dev (hfml.data.db)
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+
+# LLM (F05 · M06)
+google-genai>=1.0       # Gemini — SDK mới, import: from google import genai
+
+# API (F05 · M08)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Dev / test
+pytest>=8.0
