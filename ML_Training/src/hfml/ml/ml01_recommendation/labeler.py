@@ -3,12 +3,32 @@
 Bản chốt 11/08/2026, đặc tả đầy đủ ở PLAN.md §6.1b. File này là hiện thực
 duy nhất của `g(·)` — không nơi nào khác được định nghĩa lại bốn nhóm.
 
-Thang mức độ CHÍNH LÀ thứ tự kiểm tra
--------------------------------------
+Nhãn này là gì — và KHÔNG phải gì
+----------------------------------
+Tên gọi chuẩn của biến mục tiêu: **Financial Recommendation Group** — *nhóm
+định hướng tài chính*. ML01 dự đoán hộ gia đình thuộc nhóm định hướng nào dựa
+trên các đặc trưng tài chính đầu vào.
+
+Không gọi nó là *Financial Health Score / Level / Classification*, cũng không
+gọi là *mức độ sức khỏe tài chính*. Chấm sức khỏe tài chính là việc của **RB02**
+(`rules/rb02_health.py`), một hàm xác định trả 4 mức EXCELLENT → CRITICAL. Hai
+tầng trả lời hai câu khác nhau:
+
+    RB02  (rule)  → hộ này đang ở trạng thái nào?      EXCELLENT … CRITICAL
+    ML01  (model) → hộ này nên tập trung vào việc gì?  EMERGENCY … GROWTH
+
+Bốn nhóm dưới đây KHÔNG phải bốn bậc của một điểm số. `g(·)` không tính ra một
+biến tổng hợp nào rồi chia ngưỡng lên nó — nó kiểm ba điều kiện độc lập, mỗi
+điều kiện ứng với một việc cần làm khác nhau (hết đệm · nợ quá nặng · đệm còn
+mỏng). Xem `label_frame()`.
+
+Thứ tự ưu tiên CHÍNH LÀ thứ tự kiểm tra
+----------------------------------------
     EMERGENCY    🔴 → DEBT_FOCUS 🟠 → BUILD_BUFFER 🟡 → GROWTH 🟢
 
-Hộ thỏa nhiều điều kiện nhận nhãn nặng nhất. Nhờ vậy `g(·)` đơn trị mà không
-cần luật phá hòa riêng.
+Đây là thang **mức độ cấp thiết của việc cần làm**, không phải thang điểm sức
+khỏe. Hộ thỏa nhiều điều kiện nhận nhãn cấp thiết nhất. Nhờ vậy `g(·)` đơn trị
+mà không cần luật phá hòa riêng.
 
 ⚠️ Ba chỉ số `savings_months`, `dti`, `savings_rate` mà `g(·)` dùng KHÔNG BAO
 GIỜ được đưa vào `X`. Chúng là biến `g(·)` đặt ngưỡng lên; cho vào feature
@@ -28,24 +48,33 @@ from hfml.data.schema import ASSET_COLUMNS
 
 
 class RecommendationGroup(str, Enum):
-    """Bốn nhóm khuyến nghị, xếp theo mức độ nghiêm trọng GIẢM DẦN.
+    """Bốn nhóm định hướng tài chính, xếp theo mức độ CẤP THIẾT giảm dần.
 
-    Thứ tự khai báo có ý nghĩa: `severity` dùng nó để so sánh, và bước nhiễu
-    nhãn chỉ đảo sang nhóm liền kề trong thang này.
+    Thứ tự khai báo có ý nghĩa kỹ thuật: `severity` dùng nó để so sánh, và
+    bước nhiễu nhãn chỉ đảo sang nhóm liền kề trong thang này.
+
+    Thang này xếp *việc cần làm gấp đến đâu*, không phải *tài chính tốt đến
+    đâu*. `GROWTH` không có nghĩa "điểm cao nhất" mà nghĩa "không còn việc cấp
+    thiết nào chắn đường, có thể hướng tới tăng trưởng".
     """
 
-    EMERGENCY = "EMERGENCY"          # 🔴 Tài chính nguy cấp
+    EMERGENCY = "EMERGENCY"          # 🔴 Cần xử lý khẩn cấp dòng tiền
     DEBT_FOCUS = "DEBT_FOCUS"        # 🟠 Cần tập trung xử lý nợ
     BUILD_BUFFER = "BUILD_BUFFER"    # 🟡 Cần xây dựng quỹ dự phòng
-    GROWTH = "GROWTH"                # 🟢 Tài chính tương đối tốt
+    GROWTH = "GROWTH"                # 🟢 Có thể hướng tới tăng trưởng
 
     @property
     def severity(self) -> int:
-        """0 = nặng nhất. Dùng để đảo nhãn sang nhóm liền kề."""
+        """0 = cấp thiết nhất. Dùng để đảo nhãn sang nhóm liền kề.
+
+        Tên `severity` nói về độ cấp thiết của việc cần làm, không phải mức độ
+        xấu của sức khỏe tài chính.
+        """
         return ORDERED_GROUPS.index(self)
 
 
-#: Thang mức độ, nặng → nhẹ. Đừng đổi thứ tự — nhiễu nhãn dựa vào nó.
+#: Thang cấp thiết, gấp → không gấp. Đừng đổi thứ tự — nhiễu nhãn dựa vào nó.
+#: KHÔNG phải thang điểm sức khỏe; xem docstring đầu file.
 ORDERED_GROUPS: Final[tuple[RecommendationGroup, ...]] = (
     RecommendationGroup.EMERGENCY,
     RecommendationGroup.DEBT_FOCUS,
@@ -53,11 +82,17 @@ ORDERED_GROUPS: Final[tuple[RecommendationGroup, ...]] = (
     RecommendationGroup.GROWTH,
 )
 
+#: Chuỗi hiển thị cho người dùng. Cả bốn diễn đạt theo ĐỊNH HƯỚNG — việc hộ
+#: cần hướng vào — chứ không theo trạng thái tốt/xấu. Chấm trạng thái là việc
+#: của RB02 (`rules/rb02_health.py`, 4 mức EXCELLENT → CRITICAL); ML01 trả lời
+#: một câu khác: hộ này nên tập trung vào đâu. Hai tầng dùng hai bộ nhãn riêng,
+#: và diễn đạt ML01 theo kiểu "tài chính nguy cấp / tương đối tốt" làm người
+#: đọc tưởng hai tầng đang trả lời cùng một câu hỏi.
 LABELS_VI: Final[dict[RecommendationGroup, str]] = {
-    RecommendationGroup.EMERGENCY: "Tài chính nguy cấp",
+    RecommendationGroup.EMERGENCY: "Cần xử lý khẩn cấp dòng tiền",
     RecommendationGroup.DEBT_FOCUS: "Cần tập trung xử lý nợ",
     RecommendationGroup.BUILD_BUFFER: "Cần xây dựng quỹ dự phòng",
-    RecommendationGroup.GROWTH: "Tài chính tương đối tốt, có thể tăng trưởng",
+    RecommendationGroup.GROWTH: "Có thể hướng tới tăng trưởng",
 }
 
 
@@ -132,7 +167,11 @@ def label_frame(
         RecommendationGroup.BUILD_BUFFER.value,
     ]
     labels = np.select(conditions, choices, default=RecommendationGroup.GROWTH.value)
-    return pd.Series(labels, index=df.index, name="label")
+    # Tên `recommendation_group` chứ không phải `label` chung chung hay
+    # `financial_health`: biến mục tiêu của ML01 là nhóm định hướng tài chính.
+    # Tên hiện ra ở `y.name`, trong log và khi debug — đặt đúng ở đây thì không
+    # ai đọc nhầm target thành điểm sức khỏe.
+    return pd.Series(labels, index=df.index, name="recommendation_group")
 
 
 def distance_to_boundary(

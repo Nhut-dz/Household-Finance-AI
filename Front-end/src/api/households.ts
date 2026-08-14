@@ -58,6 +58,22 @@ export interface HouseholdResponse extends StoreHouseholdPayload {
   updated_at: string
 }
 
+/**
+ * Response của PUT /households/{id}, có thêm trạng thái phiên trò chuyện.
+ *
+ * `conversation_rotated = true` nghĩa là lần sửa này chạm vào dữ liệu tài chính
+ * nên backend đã đóng phiên cũ và mở phiên mới. FE phải xoá hội thoại đang hiển
+ * thị — những câu trả lời đó được sinh trên số liệu không còn đúng.
+ *
+ * Quyết định do backend đưa ra chứ FE không tự so số liệu: chép luật nghiệp vụ
+ * sang hai nơi thì sớm muộn hai nơi lệch nhau.
+ */
+export interface UpdateHouseholdResponse extends HouseholdResponse {
+  /** Null khi hộ chưa từng trò chuyện và lần sửa này không xoay phiên. */
+  conversation_id: number | null
+  conversation_rotated: boolean
+}
+
 export function toStoreHouseholdPayload(
   profile: HouseholdProfile,
 ): StoreHouseholdPayload {
@@ -117,7 +133,10 @@ export const createHousehold = (profile: HouseholdProfile) =>
 
 /** Cập nhật hồ sơ đã có (nút "Sửa hồ sơ"), thay vì tạo thêm bản ghi mới. */
 export const updateHousehold = (id: number, profile: HouseholdProfile) =>
-  apiPut<HouseholdResponse>(`/households/${id}`, toStoreHouseholdPayload(profile))
+  apiPut<UpdateHouseholdResponse>(
+    `/households/${id}`,
+    toStoreHouseholdPayload(profile),
+  )
 
 /** Hồ sơ gần nhất của phiên hiện tại. Backend trả 404 khi chưa có hồ sơ nào. */
 export const getLatestHousehold = () =>

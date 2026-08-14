@@ -137,4 +137,77 @@ class ChatMessageController extends Controller
 
         return $this->successResponse($messages, __('lang.Message_sent'), Response::HTTP_CREATED);
     }
+
+    #[OA\Get(
+        path: '/households/{id}/conversations',
+        operationId: 'listConversations',
+        description: 'Danh sách các phiên trò chuyện của hồ sơ, mới nhất trước. Phiên '
+            .'`closed` với `closed_reason = profile_updated` là phiên đã bị thay khi '
+            .'người dùng sửa dữ liệu tài chính.',
+        summary: 'Danh sách phiên trò chuyện',
+        security: [[], ['bearerAuth' => []]],
+        tags: ['Chat'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'guest_session_id', in: 'query', required: false, schema: new OA\Schema(type: 'string', maxLength: 64)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Thành công'),
+            new OA\Response(response: 403, description: 'Hồ sơ không thuộc về người gọi'),
+            new OA\Response(response: 404, description: 'Không tìm thấy hồ sơ'),
+        ],
+    )]
+    public function conversations(HouseholdAccessRequest $request, int $id): JsonResponse
+    {
+        $household = $this->householdService->findOwned(
+            $id,
+            $request->resolvedUser(),
+            $request->guestSessionId()
+        );
+
+        return $this->successResponse(
+            $this->chatService->conversations($household),
+            __('lang.Messages_fetched')
+        );
+    }
+
+    #[OA\Get(
+        path: '/households/{id}/conversations/{conversationId}/messages',
+        operationId: 'listConversationMessages',
+        description: 'Nội dung của MỘT phiên, kể cả phiên đã đóng. Dùng cho màn xem lại '
+            .'lịch sử; nội dung này không được đưa vào ngữ cảnh của phiên đang mở.',
+        summary: 'Lịch sử của một phiên trò chuyện',
+        security: [[], ['bearerAuth' => []]],
+        tags: ['Chat'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'conversationId', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'guest_session_id', in: 'query', required: false, schema: new OA\Schema(type: 'string', maxLength: 64)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Thành công'),
+            new OA\Response(response: 403, description: 'Hồ sơ không thuộc về người gọi'),
+            new OA\Response(response: 404, description: 'Không tìm thấy hồ sơ hoặc phiên'),
+        ],
+    )]
+    public function conversationMessages(
+        HouseholdAccessRequest $request,
+        int $id,
+        int $conversationId,
+    ): JsonResponse {
+        $household = $this->householdService->findOwned(
+            $id,
+            $request->resolvedUser(),
+            $request->guestSessionId()
+        );
+
+        // Tìm phiên QUA quan hệ của hộ, không tìm thẳng theo id: tra thẳng thì
+        // ai biết một conversation_id bất kỳ đều đọc được hội thoại của hộ khác.
+        $conversation = $household->conversations()->findOrFail($conversationId);
+
+        return $this->successResponse(
+            $this->chatService->conversationHistory($conversation),
+            __('lang.Messages_fetched')
+        );
+    }
 }

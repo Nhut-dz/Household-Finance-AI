@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * Một lượt hỏi của người dùng trong Chatbot.
  */
 #[Table('tblconsultations')]
-#[Fillable(['household_id', 'user_question'])]
+#[Fillable(['household_id', 'conversation_id', 'user_question'])]
 class Consultation extends Model
 {
     public const UPDATED_AT = null;
@@ -21,6 +21,17 @@ class Consultation extends Model
     public function household(): BelongsTo
     {
         return $this->belongsTo(Household::class);
+    }
+
+    /**
+     * Phiên trò chuyện chứa lượt hỏi này.
+     *
+     * Null chỉ xảy ra với dữ liệu chưa qua backfill của migration
+     * `create_tblconversations_table`; mọi lượt hỏi mới đều có phiên.
+     */
+    public function conversation(): BelongsTo
+    {
+        return $this->belongsTo(Conversation::class);
     }
 
     /**

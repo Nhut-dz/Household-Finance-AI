@@ -4,32 +4,32 @@
   "selection_metric": "macro_f1",
   "selection_basis": "cross-validation trên tập train (80%)",
   "criterion": "macro-F1 cao nhất khi CV 4 thuật toán trên cùng fold, cùng feature, cùng seed; baseline bị loại khỏi danh sách dự tuyển",
-  "cv_macro_f1": 0.9189805743363856,
-  "cv_macro_f1_std": 0.0061379719749801,
+  "cv_macro_f1": 0.9143656828368494,
+  "cv_macro_f1_std": 0.0067768828371939,
   "runner_up": "bagging",
-  "margin": 0.012308472121147385,
-  "margin_vs_fold_std": 2.005299498159942,
+  "margin": 0.007241938435667783,
+  "margin_vs_fold_std": 1.0686238215483814,
   "cv_ranking": [
     {
       "algo": "xgboost",
-      "cv_macro_f1": 0.9189805743363856
+      "cv_macro_f1": 0.9143656828368494
     },
     {
       "algo": "bagging",
-      "cv_macro_f1": 0.9066721022152382
+      "cv_macro_f1": 0.9071237444011816
     },
     {
       "algo": "random_forest",
-      "cv_macro_f1": 0.8520198217432835
+      "cv_macro_f1": 0.8449377678712825
     },
     {
       "algo": "decision_tree",
-      "cv_macro_f1": 0.8422879155462354
+      "cv_macro_f1": 0.8414891307659031
     }
   ],
   "supporting": {
-    "test_macro_f1": 0.9135540771967632,
-    "gap_cv_minus_test": 0.005426497139622399,
+    "test_macro_f1": 0.915672145446731,
+    "gap_cv_minus_test": -0.0013064626098816534,
     "note": "chỉ số test chỉ để đối chiếu, không dùng để chọn model"
   }
 }

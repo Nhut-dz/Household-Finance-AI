@@ -25,4 +25,7 @@ enum ApiEnum: string
 
     case HOUSEHOLD_MESSAGE_INDEX = 'household.message.index';
     case HOUSEHOLD_MESSAGE_STORE = 'household.message.store';
+
+    case HOUSEHOLD_CONVERSATION_INDEX = 'household.conversation.index';
+    case HOUSEHOLD_CONVERSATION_MESSAGES = 'household.conversation.messages';
 }

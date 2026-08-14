@@ -247,7 +247,12 @@ export default function InfoFormPage({
   householdId: number | null
   onChange: (patch: Partial<HouseholdProfile>) => void
   onNavigate: (page: PageKey) => void
-  onSaved: (householdId: number) => void
+  /**
+   * `conversationRotated` chỉ có khi cập nhật hồ sơ: backend báo lần sửa này có
+   * chạm vào dữ liệu tài chính hay không, để màn Chatbot biết phải xoá hội thoại
+   * cũ hay giữ lại.
+   */
+  onSaved: (householdId: number, info?: { conversationRotated: boolean }) => void
 }) {
   const toggleAsset = (key: AssetKey) =>
     onChange({
@@ -276,10 +281,13 @@ export default function InfoFormPage({
     setFieldErrors({})
 
     try {
-      const saved = householdId
-        ? await updateHousehold(householdId, profile)
-        : await createHousehold(profile)
-      onSaved(saved.id)
+      if (householdId) {
+        const saved = await updateHousehold(householdId, profile)
+        onSaved(saved.id, { conversationRotated: saved.conversation_rotated })
+      } else {
+        const saved = await createHousehold(profile)
+        onSaved(saved.id)
+      }
     } catch (error) {
       if (error instanceof ApiError) {
         setFormError(error.message)

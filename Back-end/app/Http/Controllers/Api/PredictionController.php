@@ -29,10 +29,11 @@ class PredictionController extends Controller
     #[OA\Get(
         path: '/households/{id}/prediction',
         operationId: 'getHouseholdPrediction',
-        description: 'Gọi model ML01 phân loại hộ vào một trong 4 nhóm khuyến nghị: '
-            .'EMERGENCY, DEBT_FOCUS, BUILD_BUFFER, GROWTH. Trả kèm xác suất đủ 4 lớp '
-            .'theo thang mức độ, và cờ low_confidence khi xác suất cao nhất dưới ngưỡng.',
-        summary: 'Dự đoán nhóm khuyến nghị tài chính (ML01)',
+        description: 'Gọi model ML01 (Financial Recommendation Group Classification) dự đoán '
+            .'nhóm định hướng tài chính của hộ. Output nghiệp vụ là MỘT nhãn ở `prediction`: '
+            .'EMERGENCY, DEBT_FOCUS, BUILD_BUFFER hoặc GROWTH. Khối `model_confidence` là số '
+            .'liệu kỹ thuật (xác suất 4 lớp, cờ low_confidence) — không phải 4 kết quả dự đoán.',
+        summary: 'Dự đoán nhóm định hướng tài chính (ML01)',
         security: [[], ['bearerAuth' => []]],
         tags: ['Prediction'],
         parameters: [
@@ -53,18 +54,25 @@ class PredictionController extends Controller
                                 new OA\Property(
                                     property: 'data',
                                     properties: [
-                                        new OA\Property(property: 'label', type: 'string', example: 'BUILD_BUFFER'),
-                                        new OA\Property(property: 'label_vi', type: 'string', example: 'Cần xây dựng quỹ dự phòng'),
-                                        new OA\Property(property: 'confidence', type: 'number', example: 0.87),
-                                        new OA\Property(property: 'probabilities', type: 'array', items: new OA\Items(
+                                        new OA\Property(property: 'prediction', type: 'string', example: 'BUILD_BUFFER', description: 'Output nghiệp vụ — MỘT nhóm định hướng'),
+                                        new OA\Property(property: 'prediction_vi', type: 'string', example: 'Cần xây dựng quỹ dự phòng'),
+                                        new OA\Property(
+                                            property: 'model_confidence',
+                                            description: 'Số liệu kỹ thuật, không phải kết quả dự đoán',
                                             properties: [
-                                                new OA\Property(property: 'label', type: 'string'),
-                                                new OA\Property(property: 'label_vi', type: 'string'),
-                                                new OA\Property(property: 'probability', type: 'number'),
+                                                new OA\Property(property: 'confidence', type: 'number', example: 0.87),
+                                                new OA\Property(property: 'low_confidence', type: 'boolean', example: false),
+                                                new OA\Property(property: 'probabilities', type: 'array', items: new OA\Items(
+                                                    properties: [
+                                                        new OA\Property(property: 'label', type: 'string'),
+                                                        new OA\Property(property: 'label_vi', type: 'string'),
+                                                        new OA\Property(property: 'probability', type: 'number'),
+                                                    ],
+                                                    type: 'object'
+                                                )),
                                             ],
                                             type: 'object'
-                                        )),
-                                        new OA\Property(property: 'low_confidence', type: 'boolean', example: false),
+                                        ),
                                         new OA\Property(property: 'model_version', type: 'string', example: 'ml01_xgboost_vfinal'),
                                     ],
                                     type: 'object'

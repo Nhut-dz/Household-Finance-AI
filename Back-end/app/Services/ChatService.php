@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AiResponse;
 use App\Models\Consultation;
+use App\Models\Conversation;
 use App\Models\Household;
 use Illuminate\Support\Facades\DB;
 
@@ -16,16 +17,74 @@ use Illuminate\Support\Facades\DB;
  */
 class ChatService
 {
-    public function __construct(private readonly AdvisorClient $advisor) {}
+    public function __construct(
+        private readonly AdvisorClient $advisor,
+        private readonly ConversationService $conversations,
+    ) {}
 
     /**
-     * Toàn bộ hội thoại của hồ sơ, sắp xếp theo created_at tăng dần.
+     * Hội thoại của PHIÊN ĐANG MỞ, sắp xếp theo thời gian tăng dần.
      *
-     * @return array<int, array<string, mixed>>
+     * Chỉ phiên đang mở, không phải toàn bộ lịch sử của hộ. Sau khi người dùng
+     * sửa số liệu tài chính, phiên cũ đã bị đóng nên các lượt hỏi của nó không
+     * còn xuất hiện ở đây — chúng vẫn nằm trong DB và đọc lại được qua
+     * `conversationHistory()`.
+     *
+     * @return array{conversation_id: int|null, messages: array<int, array<string, mixed>>}
      */
     public function history(Household $household): array
     {
-        return $household->consultations()
+        $conversation = $household->activeConversation()->first();
+
+        if ($conversation === null) {
+            // Hộ chưa từng hỏi câu nào. Không mở phiên ở đường ĐỌC — mở phiên
+            // là việc của đường ghi, để một lần vào xem màn chat không tạo ra
+            // phiên rỗng.
+            return ['conversation_id' => null, 'messages' => []];
+        }
+
+        return [
+            'conversation_id' => $conversation->id,
+            'messages' => $conversation->consultations()
+                ->with('aiResponse')
+                ->orderBy('id')
+                ->get()
+                ->flatMap(fn (Consultation $consultation) => $this->toMessages($consultation))
+                ->all(),
+        ];
+    }
+
+    /**
+     * Danh sách các phiên của hộ kèm số lượt hỏi — cho màn xem lại lịch sử.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function conversations(Household $household): array
+    {
+        return $household->conversations()
+            ->withCount('consultations')
+            ->get()
+            ->map(fn (Conversation $conversation) => [
+                'id' => $conversation->id,
+                'status' => $conversation->status,
+                'closed_reason' => $conversation->closed_reason,
+                // Số LƯỢT hỏi đáp, không phải số message: một lượt trải ra
+                // thành hai message (câu hỏi + câu trả lời) ở `history()`.
+                'turn_count' => $conversation->consultations_count,
+                'created_at' => $conversation->created_at,
+                'closed_at' => $conversation->closed_at,
+            ])
+            ->all();
+    }
+
+    /**
+     * Hội thoại của MỘT phiên cụ thể, kể cả phiên đã đóng.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function conversationHistory(Conversation $conversation): array
+    {
+        return $conversation->consultations()
             ->with('aiResponse')
             ->orderBy('id')
             ->get()
@@ -39,14 +98,21 @@ class ChatService
      * Gọi Python trước khi ghi DB để nếu service lỗi thì không để lại lượt hỏi
      * mồ côi không có câu trả lời.
      *
-     * @return array{user_message: array<string, mixed>, ai_message: array<string, mixed>}
+     * Lượt hỏi luôn được gắn vào phiên ĐANG MỞ của hộ, lấy ở server chứ không
+     * nhận `conversation_id` từ client: client giữ id cũ sau khi hồ sơ đổi là
+     * đúng tình huống nghiệp vụ này cấm, và nhận id từ ngoài vào thì cái cấm đó
+     * chỉ còn là lời hứa.
+     *
+     * @return array{conversation_id: int, user_message: array<string, mixed>, ai_message: array<string, mixed>}
      */
     public function send(Household $household, string $content): array
     {
+        $conversation = $this->conversations->currentOrNew($household);
         $answer = $this->advisor->ask($household, $content);
 
-        $consultation = DB::transaction(function () use ($household, $content, $answer) {
+        $consultation = DB::transaction(function () use ($household, $conversation, $content, $answer) {
             $consultation = $household->consultations()->create([
+                'conversation_id' => $conversation->id,
                 'user_question' => $content,
             ]);
 
@@ -61,6 +127,7 @@ class ChatService
         });
 
         return [
+            'conversation_id' => $conversation->id,
             'user_message' => $this->userMessage($consultation),
             'ai_message' => $this->aiMessage($consultation, $consultation->aiResponse),
         ];

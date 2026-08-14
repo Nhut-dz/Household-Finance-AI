@@ -4,7 +4,7 @@ const ITEMS: { key: PageKey; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'info', label: 'Nhập thông tin' },
   { key: 'chatbot', label: 'Chatbot AI' },
-  { key: 'proposal', label: 'Phương án đề xuất' },
+  { key: 'proposal', label: 'Chẩn đoán hồ sơ' },
 ]
 
 /**

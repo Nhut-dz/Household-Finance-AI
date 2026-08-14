@@ -96,7 +96,7 @@ function EmptyState({
     <div className="grid place-items-center rounded-3xl border border-slate-100 bg-white px-6 py-20 text-center shadow-sm">
       <Sparkles size={40} className="text-brand-500" />
       <h2 className="mt-4 text-2xl font-extrabold text-slate-800">
-        Chưa có dữ liệu phương án đề xuất
+        Chưa có dữ liệu chẩn đoán hồ sơ
       </h2>
       <p className="mt-3 max-w-md text-sm font-medium text-slate-500">{message}</p>
       <button
@@ -135,12 +135,12 @@ export default function ProposalPage({
       .then(setProposal)
       .catch((err) => {
         setProposal(null)
-        // 404 = hồ sơ chưa được tính phương án, là trạng thái bình thường.
+        // 404 = hồ sơ chưa được chẩn đoán, là trạng thái bình thường.
         if (!(err instanceof ApiError) || err.status !== 404) {
           setError(
             err instanceof ApiError
               ? err.message
-              : 'Không tải được phương án đề xuất.',
+              : 'Không tải được chẩn đoán hồ sơ.',
           )
         }
       })
@@ -171,7 +171,7 @@ export default function ProposalPage({
       <div className="grid place-items-center rounded-3xl border border-slate-100 bg-white px-6 py-20 text-center shadow-sm">
         <Loader2 size={32} className="animate-spin text-brand-500" />
         <p className="mt-4 text-sm font-medium text-slate-500">
-          Đang tải phương án đề xuất...
+          Đang tải chẩn đoán hồ sơ...
         </p>
       </div>
     )
@@ -180,7 +180,7 @@ export default function ProposalPage({
   if (householdId === null) {
     return (
       <EmptyState
-        message="Vui lòng nhập thông tin hộ gia đình để AI tính toán và xuất phương án tài chính."
+        message="Vui lòng nhập thông tin hộ gia đình để AI phân tích và chẩn đoán hồ sơ tài chính."
         onNavigate={onNavigate}
       />
     )
@@ -189,7 +189,7 @@ export default function ProposalPage({
   if (proposal === null) {
     return (
       <div className="space-y-4">
-        {/* Chưa có phương án không có nghĩa là chưa phân loại được. */}
+        {/* Chưa có chẩn đoán không có nghĩa là chưa phân loại được. */}
         <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm sm:p-8">
           <PredictionCard householdId={householdId} />
         </div>
@@ -200,7 +200,7 @@ export default function ProposalPage({
           </div>
         )}
         <EmptyState
-          message="Hồ sơ của bạn chưa được tính phương án. Hãy trò chuyện với AI hoặc cập nhật thông tin để hệ thống phân tích lại."
+          message="Hồ sơ của bạn chưa được chẩn đoán. Hãy trò chuyện với AI hoặc cập nhật thông tin để hệ thống phân tích lại."
           onNavigate={onNavigate}
         />
       </div>
@@ -228,7 +228,7 @@ export default function ProposalPage({
           <Download size={16} /> Xuất PDF
         </button>
         <h1 className="flex-1 text-center text-xl font-extrabold text-slate-800">
-          Phương án tài chính đề xuất
+          Chẩn đoán hồ sơ tài chính
         </h1>
         <button
           onClick={handleClear}
