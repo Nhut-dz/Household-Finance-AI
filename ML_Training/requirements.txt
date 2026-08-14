@@ -12,6 +12,7 @@ shap>=0.44              # SHAP summary (global) + local top-5 cho ML02
 # Config & validation
 pydantic>=2.6
 PyYAML>=6.0
+python-dotenv>=1.0      # hfml.config nạp .env; không dựa vào uvicorn kéo gián tiếp
 
 # Nguồn dữ liệu nghiệp vụ: PostgreSQL Household_Finance_V2_Dev (hfml.data.db)
 SQLAlchemy>=2.0

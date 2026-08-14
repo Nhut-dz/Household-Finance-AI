@@ -20,6 +20,7 @@ import sys
 import pandas as pd
 
 from hfml.data.synthetic import PopulationParams
+from hfml.ml.ml01_recommendation.report import build_ml01_report
 from hfml.ml.ml01_recommendation.train import train_bagging
 
 
@@ -55,6 +56,11 @@ def main() -> int:
     if "artifact" in result:
         print(f"\nArtifact  → {result['artifact']}")
         print(f"Kết quả   → {result['results_csv']}")
+
+        report = build_ml01_report(params, seed=args.seed, n_splits=args.n_splits)
+        print("\n=== Hình đã ghi ===")
+        for name, path in report["figures"].items():
+            print(f"{name:<20} → {path}")
     return 0
 
 

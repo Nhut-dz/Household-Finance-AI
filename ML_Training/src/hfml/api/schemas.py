@@ -78,17 +78,41 @@ class Ml01Probability(BaseModel):
     probability: float
 
 
-class Ml01PredictResponse(BaseModel):
-    label: str = Field(..., description="Nhãn dự đoán, ví dụ EMERGENCY")
-    label_vi: str = Field(..., description="Nhãn tiếng Việt để hiển thị")
-    confidence: float = Field(..., description="Xác suất của nhãn được chọn")
-    #: Xác suất đủ 4 lớp, xếp theo thang mức độ 🔴 → 🟢 chứ không theo xác suất
-    #: giảm dần — thứ tự cố định giúp FE vẽ biểu đồ không nhảy giữa hai lần gọi.
-    probabilities: list[Ml01Probability]
+class Ml01ModelConfidence(BaseModel):
+    """Số liệu KỸ THUẬT về độ tin cậy — không phải kết quả dự đoán.
+
+    Gom vào một khối riêng là có chủ ý. Trước đây `probabilities` nằm ngang
+    hàng với `label` ở tầng ngoài, và FE vẽ bốn thanh cùng cỡ với nhãn thắng —
+    người xem đọc thành "model trả về bốn kết quả". ML01 là phân loại đơn nhãn:
+    kết quả đúng một nhãn, bốn xác suất chỉ là bên trong phép chọn nhãn đó.
+    """
+
+    confidence: float = Field(..., description="Xác suất của nhãn được dự đoán")
     low_confidence: bool = Field(
         ...,
         description="True khi xác suất cao nhất dưới ngưỡng tin cậy của config",
     )
+    #: Xác suất đủ 4 lớp, xếp theo thang cấp thiết 🔴 → 🟢 chứ không theo xác
+    #: suất giảm dần — thứ tự cố định giúp FE vẽ không nhảy giữa hai lần gọi.
+    probabilities: list[Ml01Probability]
+
+
+class Ml01PredictResponse(BaseModel):
+    """Kết quả ML01 — Financial Recommendation Group Classification.
+
+    `prediction` là **output nghiệp vụ duy nhất**: một nhóm định hướng tài
+    chính. Mọi thứ trong `model_confidence` là thông tin kỹ thuật kèm theo.
+    """
+
+    prediction: str = Field(
+        ...,
+        description="Nhóm định hướng tài chính được dự đoán — MỘT nhãn. "
+                    "Một trong EMERGENCY · DEBT_FOCUS · BUILD_BUFFER · GROWTH",
+    )
+    prediction_vi: str = Field(
+        ..., description="Nhãn tiếng Việt của `prediction`, để hiển thị")
+    model_confidence: Ml01ModelConfidence = Field(
+        ..., description="Số liệu kỹ thuật; không trình bày như kết quả dự đoán")
     model_version: str = Field(..., description="Slug artifact đã dùng")
 
 

@@ -199,6 +199,11 @@ def build_training_data(
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Sinh dân số, gán nhãn `g(·)`, thêm nhiễu. Trả `(X, y)`.
 
+    Biến mục tiêu `y` là **nhóm định hướng tài chính** (Financial Recommendation
+    Group) — `y.name == "recommendation_group"`, nhận một trong bốn giá trị
+    EMERGENCY · DEBT_FOCUS · BUILD_BUFFER · GROWTH. Không phải điểm hay mức độ
+    sức khỏe tài chính; xem docstring đầu `labeler.py`.
+
     `X` lấy đúng `RAW_FEATURES` chứ không phải `df` — đó là chỗ chặn rò rỉ
     nhãn cuối cùng trước khi dữ liệu vào model (PLAN.md §6.1c).
     """
@@ -208,37 +213,82 @@ def build_training_data(
     return df[list(RAW_FEATURES)], y
 
 
+def split_train_val_test(
+    X: pd.DataFrame,
+    y: pd.Series,
+    val_size: float | None = None,
+    test_size: float | None = None,
+    seed: int | None = None,
+):
+    """Chia ba tập của task 5 (chốt lại 12/08/2026): 70% / 15% / 15%.
+
+        train       70%   `StratifiedKFold` 5-fold chạy trên đây — vẫn là
+                          căn cứ CHỌN MODEL, và là chỗ duy nhất sinh ra σ
+                          giữa các fold mà task 14 dùng để đo cách biệt
+        validation  15%   chấm một lần để đối chiếu với CV; KHÔNG tham gia
+                          chọn model
+        test        15%   khoá lại, CHỈ dùng cho đánh giá cuối
+
+    CV 5-fold được giữ nguyên chứ không bị validation thay thế. Hai thứ trả
+    lời hai câu khác nhau: CV cho biết chỉ số dao động bao nhiêu giữa các lát
+    cắt (nên mới có σ), validation cho một con số trên tập chưa từng fit. Bỏ
+    CV thì tiêu chí "hơn á quân bao nhiêu lần σ" của task 14 mất căn cứ.
+
+    Cắt hai lần chứ không một lần: lần đầu tách `test`, lần sau tách
+    `validation` ra khỏi phần còn lại. Tỉ lệ lần hai phải quy đổi theo phần
+    còn lại (`0.15 / 0.85`) chứ không phải 0.15 — lấy thẳng 0.15 của phần còn
+    lại thì validation chỉ còn 12,75% tổng.
+
+    `stratify` ở cả hai lần là bắt buộc: lớp nhỏ nhất chiếm ~15%, cắt ngẫu
+    nhiên thì tỉ lệ 4 lớp giữa ba tập lệch nhau và các chỉ số hết so được.
+    """
+    val_size = CONFIG.training["val_size"] if val_size is None else val_size
+    test_size = CONFIG.training["test_size"] if test_size is None else test_size
+    seed = CONFIG.random_seed if seed is None else seed
+
+    if val_size + test_size >= 1.0:
+        raise ValueError(
+            f"val_size ({val_size}) + test_size ({test_size}) phải nhỏ hơn 1.0 — "
+            "không còn dòng nào cho tập train.")
+
+    X_rest, X_test, y_rest, y_test = train_test_split(
+        X, y, test_size=test_size, stratify=y, random_state=seed)
+
+    # Quy đổi sang tỉ lệ CỦA PHẦN CÒN LẠI để validation đúng bằng `val_size`
+    # của tập gốc.
+    val_of_rest = val_size / (1.0 - test_size)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_rest, y_rest, test_size=val_of_rest, stratify=y_rest, random_state=seed)
+
+    total = len(X)
+    log.info("Tách dữ liệu: train %d (%.0f%%) · validation %d (%.0f%%) · test %d (%.0f%%)",
+             len(X_train), len(X_train) / total * 100,
+             len(X_val), len(X_val) / total * 100,
+             len(X_test), len(X_test) / total * 100)
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
+
 def split_train_test(
     X: pd.DataFrame,
     y: pd.Series,
     test_size: float | None = None,
     seed: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-    """Tách tập test khoá lại (task 5). Mặc định lấy `training.test_size` của config.
+    """Chỉ tập train (70%) và tập test (15%) — bỏ qua validation.
 
-    Thiết kế đã CHỐT của task 5 — không mở lại:
+    Dùng cho những chỗ chỉ cần hai vế đó: CV chạy trên train, đánh giá cuối
+    chạy trên test. Tập validation KHÔNG bị trộn vào train — nó bị bỏ đi khỏi
+    giá trị trả về, nên `len(train) + len(test)` nhỏ hơn `len(X)` đúng bằng
+    phần validation. Cần cả ba thì gọi `split_train_val_test()`.
 
-        train  80%   `StratifiedKFold` 5-fold chạy trên đây, vừa làm
-                     validation vừa là căn cứ chọn model
-        test   20%   độc lập hoàn toàn, CHỈ dùng cho đánh giá cuối
-
-    Không cắt thêm một tập validation cố định. CV bên trong tập train đã đóng
-    vai đó, và với lớp nhỏ nhất ~15% thì cắt thêm lần nữa chỉ làm tập
-    validation mỏng đi mà không được gì.
+    Cắt giống hệt `split_train_val_test()` với cùng seed, nên tập train ở đây
+    và tập train ở đó là một — chỉ số CV không phụ thuộc vào việc gọi hàm nào.
 
     Tập test không được tham gia CV, chọn model, hay tinh chỉnh siêu tham số.
     `test_model_selection_never_sees_the_test_set` canh ràng buộc này.
-
-    `stratify=y` là bắt buộc chứ không phải tùy chọn: lớp nhỏ nhất chiếm
-    ~15%, cắt ngẫu nhiên thì tỉ lệ 4 lớp giữa train và test lệch nhau, và
-    chỉ số test không còn so được với chỉ số CV.
     """
-    test_size = CONFIG.training["test_size"] if test_size is None else test_size
-    seed = CONFIG.random_seed if seed is None else seed
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, stratify=y, random_state=seed)
-    log.info("Tách dữ liệu: train %d dòng · test %d dòng (%.0f%%)",
-             len(X_train), len(X_test), test_size * 100)
+    X_train, _, X_test, y_train, _, y_test = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
     return X_train, X_test, y_train, y_test
 
 
@@ -390,6 +440,20 @@ def train_decision_tree(
         result["artifact"] = save_model(
             model, metrics={"cv": cv_metrics},
             directory=runs_dir, extra={"config": run_config})
+
+        # Task 7 từng bỏ qua bước này, nên dòng CV của decision_tree chỉ xuất
+        # hiện khi task 12 backfill. Hậu quả im lặng: đổi cấu hình split rồi
+        # train lại, ba model kia có dòng mới còn decision_tree vẫn giữ dòng
+        # backfill CŨ — bảng so sánh trộn hai cỡ dữ liệu mà không báo gì.
+        logged = comparison.copy()
+        logged["split"] = "cv_train"
+        logged.insert(0, "task", TASK)
+        logged.insert(2, "feature_set", "default")
+        logged.insert(3, "random_seed", seed)
+        logged.insert(4, "n_rows", len(X_train))
+        logged.insert(5, "n_splits", n_splits)
+        logged["note"] = "task7 decision_tree"
+        result["results_csv"] = append_results(logged, runs_dir / "results.csv")
 
     return result
 
@@ -679,12 +743,17 @@ def evaluate_on_test(
     save: bool = True,
     runs_dir=None,
 ) -> dict:
-    """Task 11 — chấm 4 thuật toán trên **cùng một** tập test 20%.
+    """Task 11 — chấm 4 thuật toán trên **cùng một** tập validation và test.
 
-    Mỗi model được fit trên toàn bộ tập train rồi dự đoán tập test đúng một
-    lần. Tập test giống hệt nhau cho cả bốn: nó đến từ `split_train_test()`
-    với cùng `seed`, nên chênh lệch giữa các model là chênh lệch của model,
-    không phải của dữ liệu.
+    Mỗi model được fit trên tập train (70%) rồi dự đoán hai tập giữ riêng:
+    validation (15%) và test (15%). Cả bốn thuật toán dùng đúng cùng hai tập
+    đó — chúng đến từ `split_train_val_test()` với cùng `seed` — nên chênh
+    lệch giữa các model là chênh lệch của model, không phải của dữ liệu.
+
+    Chấm validation ở đây thuần tuý để ĐỐI CHIẾU. Nó không tham gia chọn
+    model: task 14 chỉ đọc chỉ số CV. Có ba con số cho cùng một model (CV,
+    validation, test) thì lệch bất thường giữa chúng lộ ra ngay, thay vì phải
+    tin vào một phép đo duy nhất.
 
     Hàm này **chỉ đo**. Nó không xếp hạng, không chọn model, không export —
     những việc đó thuộc task sau. Vì vậy giá trị trả về là một `dict` khoá
@@ -701,18 +770,23 @@ def evaluate_on_test(
     log_run_context(log)
 
     X, y = build_training_data(params, seed=seed)
-    X_train, X_test, y_train, y_test = split_train_test(X, y, test_size, seed)
+    X_train, X_val, X_test, y_train, y_val, y_test = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
     labels = [g.value for g in ORDERED_GROUPS]
-    log.info("Đánh giá %d thuật toán trên cùng tập test %d dòng",
-             len(algorithms), len(X_test))
+    log.info("Đánh giá %d thuật toán trên validation %d dòng và test %d dòng",
+             len(algorithms), len(X_val), len(X_test))
 
     per_algo: dict[str, dict] = {}
+    validation_metrics: dict[str, dict] = {}
     for algo in algorithms:
         model = PipelineClassifier(
             task=TASK, algo=algo,
             estimator=ALGORITHMS[algo](seed),
             preprocessing=build_preprocessing_pipeline())
         model.fit(X_train, y_train)
+
+        validation_metrics[algo] = classification_metrics(
+            y_val, model.predict(X_val), labels=labels)
 
         predicted = model.predict(X_test)
         metrics = classification_metrics(y_test, predicted, labels=labels)
@@ -721,42 +795,65 @@ def evaluate_on_test(
             "per_class": per_class_table(y_test, predicted, labels),
             "confusion": confusion_table(y_test, predicted, labels),
         }
-        log.info("%-16s test macro-F1 %.4f · accuracy %.4f",
-                 algo, metrics["macro_f1"], metrics["accuracy"])
+        log.info("%-16s validation macro-F1 %.4f · test macro-F1 %.4f",
+                 algo, validation_metrics[algo]["macro_f1"], metrics["macro_f1"])
 
     summary = pd.DataFrame(
         [{"algo": algo, **per_algo[algo]["metrics"]} for algo in algorithms])
+    validation_summary = pd.DataFrame(
+        [{"algo": algo, **validation_metrics[algo]} for algo in algorithms])
 
     result = {
         "X_test": X_test,
         "y_test": y_test,
+        "X_val": X_val,
+        "y_val": y_val,
         "labels": labels,
         "per_algo": per_algo,
         "summary": summary,
+        "validation_summary": validation_summary,
     }
 
     if save:
         result["files"] = _save_test_evaluation(
-            per_algo, summary, algorithms, runs_dir, seed, len(X_test))
+            per_algo, summary, algorithms, runs_dir, seed, len(X_test),
+            validation_summary=validation_summary, n_val=len(X_val))
     return result
 
 
-def _save_test_evaluation(per_algo, summary, algorithms, runs_dir, seed, n_test):
+def _save_test_evaluation(per_algo, summary, algorithms, runs_dir, seed, n_test,
+                          validation_summary=None, n_val=None):
     """Ghi kết quả đánh giá ra `src/training/runs/`.
 
     Bảng per-class và confusion của 4 model gộp vào MỘT file mỗi loại, phân
     biệt bằng cột `algo` — tám file rời cho cùng một lần chạy chỉ làm thư mục
     khó đọc, mà đọc được vẫn phải mở từng cái để ghép lại.
+
+    Chỉ số validation đi chung `results.csv` với `split="validation"`, không
+    ra file riêng: nó là cùng một loại số với `cv_train` và `test`, tách file
+    thì so ba tập lại phải tự ghép.
     """
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    logged = summary.copy()
-    logged["split"] = "test"
-    logged.insert(0, "task", TASK)
-    logged.insert(2, "feature_set", "default")
-    logged.insert(3, "random_seed", seed)
-    logged.insert(4, "n_rows", n_test)
-    logged["note"] = "task11 test evaluation"
+    def _tag(frame, split: str, n_rows: int, note: str):
+        tagged = frame.copy()
+        tagged["split"] = split
+        tagged["n_rows"] = n_rows
+        tagged["note"] = note
+        return tagged
+
+    rows = []
+    if validation_summary is not None:
+        rows.append(_tag(validation_summary, "validation", n_val,
+                         "task11 validation"))
+    rows.append(_tag(summary, "test", n_test, "task11 test evaluation"))
+
+    # `append_results` sắp lại cột theo `LEADING_COLUMNS`, nên ở đây chỉ cần
+    # có đủ cột chứ không cần chèn đúng vị trí.
+    logged = pd.concat(rows, ignore_index=True)
+    logged["task"] = TASK
+    logged["feature_set"] = "default"
+    logged["random_seed"] = seed
     files = {"results": append_results(logged, runs_dir / "results.csv")}
 
     per_class = pd.concat(

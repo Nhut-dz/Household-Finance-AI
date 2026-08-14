@@ -74,10 +74,13 @@ function ProfileRow({ label, value }: { label: string; value: string }) {
 export default function ChatbotPage({
   profile,
   householdId,
+  chatResetToken,
   onNavigate,
 }: {
   profile: HouseholdProfile
   householdId: number | null
+  /** Tăng khi backend xoay phiên; buộc effect nạp lại dù householdId không đổi. */
+  chatResetToken: number
   onNavigate: (page: PageKey) => void
 }) {
   const need = profile.needs.map((n) => NEED_LABELS[n]).join(', ') || 'Mua nhà'
@@ -94,16 +97,34 @@ export default function ChatbotPage({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Tải lại hội thoại đã lưu mỗi khi mở màn Chatbot.
+  // Nạp hội thoại của PHIÊN ĐANG MỞ. Chạy lại khi đổi hồ sơ, và khi
+  // `chatResetToken` tăng — tức backend vừa xoay phiên vì dữ liệu tài chính đổi.
   useEffect(() => {
+    // Xoá ngay chứ không đợi request xong: giữ lại trong lúc chờ nghĩa là người
+    // dùng vẫn đọc được lời khuyên tính trên số liệu cũ thêm một nhịp nữa.
+    setMessages([])
+    setError(null)
+
     if (householdId === null) return
 
+    let cancelled = false
     setLoading(true)
     getMessages(householdId)
-      .then(setMessages)
+      .then((history) => {
+        // Bỏ qua phản hồi của lần nạp đã bị thay thế: hai lần đổi hồ sơ liên
+        // tiếp có thể để response cũ về sau và ghi đè hội thoại mới.
+        if (cancelled) return
+        setMessages(history.messages)
+      })
       .catch(() => undefined)
-      .finally(() => setLoading(false))
-  }, [householdId])
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [householdId, chatResetToken])
 
   const send = async (text: string) => {
     const trimmed = text.trim()
@@ -119,8 +140,10 @@ export default function ChatbotPage({
     setDraft('')
 
     try {
-      const { user_message, ai_message } = await sendMessage(householdId, trimmed)
-      setMessages((prev) => [...prev, user_message, ai_message])
+      // `conversation_id` trong phản hồi do server quyết định — FE không giữ và
+      // không gửi lên, nên không thể ghi nhầm vào một phiên đã đóng.
+      const sent = await sendMessage(householdId, trimmed)
+      setMessages((prev) => [...prev, sent.user_message, sent.ai_message])
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -161,7 +184,20 @@ export default function ChatbotPage({
               </p>
             )}
 
-            {!loading && messages.length === 0 && (
+            {/*
+              Sau khi hồ sơ tài chính đổi, hội thoại cũ bị dọn đi. Nói ra lý do —
+              màn chat bỗng trống trơn mà không giải thích thì người dùng tưởng
+              mất dữ liệu.
+            */}
+            {!loading && messages.length === 0 && chatResetToken > 0 && (
+              <p className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-slate-600">
+                Hồ sơ đã được cập nhật nên đây là một phiên trò chuyện mới. Hội
+                thoại trước vẫn được lưu lại, nhưng AI sẽ phân tích lại từ đầu
+                theo số liệu mới.
+              </p>
+            )}
+
+            {!loading && messages.length === 0 && chatResetToken === 0 && (
               <p className="text-sm text-slate-400">
                 Chưa có hội thoại nào. Hãy chọn một gợi ý bên dưới hoặc đặt câu hỏi
                 cho AI.

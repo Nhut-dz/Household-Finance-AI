@@ -26,6 +26,7 @@ import pandas as pd
 
 from hfml.data.synthetic import PopulationParams
 from hfml.logger import get_logger
+from hfml.ml.ml01_recommendation.report import build_ml01_report
 from hfml.ml.ml01_recommendation.train import (
     BAGGING,
     DECISION_TREE,
@@ -101,6 +102,14 @@ def main() -> int:
     if unsaved and not args.no_save:
         print(f"\nCHÚ Ý: không có artifact cho {', '.join(unsaved)} — "
               "hàm train tương ứng chưa ghi output.")
+
+    if not args.no_save:
+        report = build_ml01_report(params, seed=args.seed, n_splits=args.n_splits)
+        print("\n=== Chỉ số trên tập test ===")
+        print(report["test_summary"].to_string(index=False))
+        print("\n=== Hình đã ghi ===")
+        for name, path in report["figures"].items():
+            print(f"{name:<20} → {path}")
     return 0
 
 

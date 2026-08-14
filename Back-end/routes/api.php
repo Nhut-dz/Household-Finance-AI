@@ -61,6 +61,20 @@ Route::prefix('households')->group(function () {
     Route::post('/{id}/messages', [ChatMessageController::class, 'store'])
         ->whereNumber('id')
         ->name(ApiEnum::HOUSEHOLD_MESSAGE_STORE->routeName());
+
+    /*
+     * Xem lại các phiên trò chuyện đã đóng. Phiên bị đóng khi hồ sơ tài chính
+     * thay đổi; nội dung vẫn ở lại DB, chỉ không còn được dùng làm ngữ cảnh.
+     */
+    Route::get('/{id}/conversations', [ChatMessageController::class, 'conversations'])
+        ->whereNumber('id')
+        ->name(ApiEnum::HOUSEHOLD_CONVERSATION_INDEX->routeName());
+
+    Route::get('/{id}/conversations/{conversationId}/messages',
+        [ChatMessageController::class, 'conversationMessages'])
+        ->whereNumber('id')
+        ->whereNumber('conversationId')
+        ->name(ApiEnum::HOUSEHOLD_CONVERSATION_MESSAGES->routeName());
 });
 
 Route::middleware('auth:sanctum')->group(function () {

@@ -22,6 +22,8 @@ class HouseholdService
      */
     private const WITH_RELATIONS = ['assets', 'financialGoals'];
 
+    public function __construct(private readonly ConversationService $conversations) {}
+
     /**
      * Lưu hồ sơ mới cùng tài sản và nhu cầu tài chính trong một transaction.
      *
@@ -44,11 +46,24 @@ class HouseholdService
      * Cập nhật hồ sơ. Tài sản và nhu cầu tài chính được ghi đè theo danh sách
      * mới, không cộng dồn với lần lưu trước.
      *
+     * Nếu lần sửa này chạm vào dữ liệu tài chính thì phiên trò chuyện hiện tại
+     * bị ĐÓNG và một phiên mới được mở: mọi câu trả lời trước đó đã sinh ra
+     * trên số liệu cũ, giữ chúng trong cùng phiên là để người dùng đọc lời
+     * khuyên hết hiệu lực như thể còn hiệu lực. Sửa tên hay nơi ở thì giữ phiên.
+     *
+     * Cả việc cập nhật lẫn việc xoay phiên nằm trong MỘT transaction: hồ sơ mới
+     * đi cùng phiên cũ là trạng thái không được phép tồn tại, kể cả trong
+     * khoảnh khắc giữa hai lệnh.
+     *
      * @param  array<string, mixed>  $data
+     * @return array{household: Household, conversation_rotated: bool, conversation_id: int|null}
      */
-    public function update(Household $household, array $data, ?User $user = null): Household
+    public function update(Household $household, array $data, ?User $user = null): array
     {
         return DB::transaction(function () use ($household, $data, $user) {
+            // Chụp vân tay TRƯỚC khi ghi đè bất cứ thứ gì.
+            $fingerprintBefore = $this->conversations->fingerprint($household);
+
             $columns = $this->mapToColumns($data, $user);
 
             // Giữ nguyên chủ sở hữu của bản ghi, tránh việc sửa hồ sơ làm mất
@@ -60,7 +75,19 @@ class HouseholdService
             $this->replaceAssets($household, $data['assets'] ?? []);
             $this->replaceFinancialGoals($household, $data['financial_needs'] ?? []);
 
-            return $household->fresh(self::WITH_RELATIONS);
+            $household = $household->fresh(self::WITH_RELATIONS);
+
+            $result = $this->conversations->rotateIfProfileChanged(
+                $household,
+                $fingerprintBefore,
+            );
+
+            return [
+                'household' => $household,
+                'conversation_rotated' => $result['rotated'],
+                // Null khi hộ chưa từng trò chuyện và lần sửa này không xoay phiên.
+                'conversation_id' => $result['conversation']?->id,
+            ];
         });
     }
 

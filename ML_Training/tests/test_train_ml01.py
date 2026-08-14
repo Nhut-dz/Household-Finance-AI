@@ -56,6 +56,7 @@ from hfml.ml.ml01_recommendation.train import (
     select_best,
     select_final_model,
     split_train_test,
+    split_train_val_test,
     train_bagging,
     train_decision_tree,
     train_random_forest,
@@ -110,7 +111,60 @@ def test_holdout_size_follows_config(data):
     X, y = data
     X_train, X_test, _, _ = split_train_test(X, y)
     assert len(X_test) == pytest.approx(len(X) * CONFIG.training["test_size"], abs=1)
-    assert len(X_train) + len(X_test) == len(X)
+    # KHÔNG bằng len(X): `split_train_test` bỏ qua tập validation, phần thiếu
+    # đúng bằng nó. Đây là hợp đồng của hàm, không phải dòng bị mất.
+    missing = len(X) - len(X_train) - len(X_test)
+    assert missing == pytest.approx(len(X) * CONFIG.training["val_size"], abs=1)
+
+
+def test_three_way_split_matches_70_15_15(data):
+    """Task 5 (chốt lại 12/08/2026): 70% train · 15% validation · 15% test.
+
+    Kiểm tỉ lệ trên tập GỐC chứ không trên phần còn lại. Cắt hai lần mà quên
+    quy đổi tỉ lệ lần hai là lỗi im lặng: validation ra 12,75% thay vì 15%,
+    tổng vẫn đủ dòng nên không gì báo động.
+    """
+    from hfml.config import CONFIG
+    X, y = data
+    X_train, X_val, X_test, y_train, y_val, y_test = split_train_val_test(X, y)
+
+    assert len(X_train) + len(X_val) + len(X_test) == len(X)
+    assert len(X_val) == pytest.approx(len(X) * CONFIG.training["val_size"], abs=1)
+    assert len(X_test) == pytest.approx(len(X) * CONFIG.training["test_size"], abs=1)
+    expected_train = 1.0 - CONFIG.training["val_size"] - CONFIG.training["test_size"]
+    assert len(X_train) == pytest.approx(len(X) * expected_train, abs=2)
+
+    # Ba tập rời nhau từng đôi một.
+    assert not set(X_train.index) & set(X_val.index)
+    assert not set(X_train.index) & set(X_test.index)
+    assert not set(X_val.index) & set(X_test.index)
+    assert len(y_train) == len(X_train)
+    assert len(y_val) == len(X_val)
+    assert len(y_test) == len(X_test)
+
+
+def test_three_way_split_is_stratified_in_every_part(data):
+    """Lớp nhỏ nhất ~15%; cắt hai lần thì lệch tỉ lệ dễ tích luỹ ở tập thứ ba."""
+    X, y = data
+    _, X_val, _, y_train, y_val, y_test = split_train_val_test(X, y)
+    overall = y.value_counts(normalize=True)
+    for label, share in overall.items():
+        for part in (y_train, y_val, y_test):
+            assert part.value_counts(normalize=True)[label] == pytest.approx(
+                share, abs=0.03)
+
+
+def test_split_train_test_reuses_the_same_training_rows(data):
+    """Hai hàm chia phải cho CÙNG tập train khi cùng seed.
+
+    Nếu lệch thì chỉ số CV đo được sẽ phụ thuộc vào việc gọi hàm nào — cùng
+    một model ra hai con số khác nhau mà không ai giải thích được vì sao.
+    """
+    X, y = data
+    X_train_two, X_test_two, _, _ = split_train_test(X, y, seed=42)
+    X_train_three, _, X_test_three, _, _, _ = split_train_val_test(X, y, seed=42)
+    assert list(X_train_two.index) == list(X_train_three.index)
+    assert list(X_test_two.index) == list(X_test_three.index)
 
 
 def test_holdout_is_stratified(data):
@@ -392,6 +446,25 @@ def test_decision_tree_writes_its_artifact_to_the_runs_directory(decision_tree_r
     assert artifact.stem == f"ml01_{DECISION_TREE}_v1"
 
 
+def test_decision_tree_logs_its_cv_row_to_results_csv(decision_tree_run):
+    """Cây đơn phải ghi dòng CV như ba thuật toán kia.
+
+    Trước đây nó ghi artifact nhưng KHÔNG ghi vào `results.csv`, nên dòng CV
+    của nó chỉ xuất hiện khi task 12 backfill. Hỏng im lặng: đổi cấu hình
+    split rồi train lại, ba model kia có dòng mới còn cây đơn vẫn giữ dòng
+    backfill cũ — bảng so sánh trộn hai cỡ dữ liệu mà không báo gì.
+    """
+    results_csv = decision_tree_run["results_csv"]
+    assert results_csv.exists()
+    assert decision_tree_run["artifact"].parent == results_csv.parent
+
+    saved = pd.read_csv(results_csv)
+    rows = saved[(saved["algo"] == DECISION_TREE) & (saved["split"] == "cv_train")]
+    assert len(rows) >= 1
+    # `n_rows` phải là cỡ tập train thật của lần chạy này, không phải số cũ.
+    assert rows.iloc[-1]["n_rows"] == len(decision_tree_run["X_train"])
+
+
 def test_decision_tree_metadata_records_metrics_and_configuration(decision_tree_run):
     artifact = decision_tree_run["artifact"]
     metadata = json.loads(
@@ -426,6 +499,7 @@ def test_decision_tree_artifact_reloads_and_predicts(decision_tree_run):
 def test_decision_tree_can_skip_writing_outputs():
     result = train_decision_tree(SMALL, n_splits=3, save=False)
     assert "artifact" not in result
+    assert "results_csv" not in result
 
 
 def test_decision_tree_reports_five_fold_cv_metrics(decision_tree_run):
@@ -723,8 +797,11 @@ def test_evaluation_never_touches_the_test_set_during_fitting(monkeypatch):
     result = evaluate_on_test(SMALL, algorithms=(DECISION_TREE,), save=False)
 
     n_test = len(result["X_test"])
-    # Đúng một lần fit, và trên phần train — không lần nào chạm cỡ tập test.
-    assert fitted_on == [SMALL.n - n_test]
+    n_val = len(result["X_val"])
+    # Đúng một lần fit, và chỉ trên tập train 70% — cả validation lẫn test đều
+    # nằm ngoài. Trừ đi cả hai chứ không riêng test: nếu validation lọt vào
+    # lúc fit thì con số chấm đối chiếu mất hết ý nghĩa.
+    assert fitted_on == [SMALL.n - n_val - n_test]
 
 
 def test_summary_reports_every_metric_task11_asks_for(test_evaluation):
@@ -774,8 +851,11 @@ def test_evaluation_writes_results_to_the_runs_directory(test_evaluation):
     assert files["results"].parent == files["per_class"].parent
 
     saved = pd.read_csv(files["results"])
-    assert set(saved["split"]) == {"test"}
-    assert len(saved) == len(CONTENDERS)
+    # Mỗi thuật toán ghi hai dòng: một cho validation, một cho test.
+    assert set(saved["split"]) == {"validation", "test"}
+    assert len(saved) == len(CONTENDERS) * 2
+    for split in ("validation", "test"):
+        assert set(saved[saved["split"] == split]["algo"]) == set(CONTENDERS)
 
 
 def test_saved_per_class_covers_every_algorithm(test_evaluation):

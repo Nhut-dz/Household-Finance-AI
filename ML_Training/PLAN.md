@@ -650,8 +650,9 @@ toán mất sạch ý nghĩa — đúng rủi ro "circular labeling" ở §14.
 **`X` chỉ gồm biến thô của form** — **17 cột, chốt 11/08/2026** sau khi đối chiếu với
 `HouseholdProfile`. Một trường vào được `X` phải thỏa **cả hai** điều kiện:
 
-1. **Luôn thu được** với mọi người dùng ML01 — ML01 chấm sức khỏe tài chính cho *mọi* hồ
-   sơ, không riêng người đang tính vay.
+1. **Luôn thu được** với mọi người dùng ML01 — ML01 dự đoán nhóm định hướng tài chính của
+   hộ gia đình dựa trên các đặc trưng tài chính đầu vào, cho *mọi* hồ sơ, không riêng
+   người đang tính vay.
 2. **Mã hóa được** mà không phải tự bịa ra một tập giá trị chuẩn.
 
 | Nhóm | Trường | Số cột |
@@ -733,14 +734,25 @@ Viết đúng câu này thì ML01 là một thí nghiệm hợp lệ. Viết sai
 
   | Tập | Tỉ lệ | Vai trò |
   |---|---|---|
-  | **train** | 80% | `StratifiedKFold` 5-fold chạy trên đây — vừa là validation, vừa là căn cứ chọn model |
-  | **test** | 20% | độc lập hoàn toàn, **chỉ** dùng cho đánh giá cuối |
+  | **train** | 70% | `StratifiedKFold` 5-fold chạy trên đây — **căn cứ chọn model**, và là chỗ duy nhất sinh ra σ giữa các fold mà task 14 dùng để đo cách biệt |
+  | **validation** | 15% | chấm một lần để **đối chiếu** với CV; không tham gia chọn model |
+  | **test** | 15% | độc lập hoàn toàn, **chỉ** dùng cho đánh giá cuối |
 
-  **Không** cắt thêm một tập validation cố định: CV bên trong tập train đã đóng vai đó,
-  và với lớp nhỏ nhất ~15% thì cắt thêm lần nữa chỉ làm tập validation mỏng đi. Tập test
-  không được tham gia CV, chọn model, hay tinh chỉnh siêu tham số — hiện thực ở
-  `split_train_test()` ([train.py](src/hfml/ml/ml01_recommendation/train.py)), có test cấu
-  trúc canh ràng buộc này.
+  **CV 5-fold được giữ nguyên**, không bị tập validation thay thế. Hai thứ trả lời hai câu
+  khác nhau: CV cho biết chỉ số dao động bao nhiêu giữa các lát cắt (nên mới có σ),
+  validation cho một con số trên tập chưa từng fit. Bỏ CV thì tiêu chí *"hơn á quân bao
+  nhiêu lần σ"* của task 14 mất căn cứ. Có ba con số cho cùng một model (CV · validation ·
+  test) thì lệch bất thường giữa chúng lộ ra ngay.
+
+  Tập test không được tham gia CV, chọn model, hay tinh chỉnh siêu tham số — hiện thực ở
+  `split_train_val_test()` ([train.py](src/hfml/ml/ml01_recommendation/train.py)), có test
+  cấu trúc canh ràng buộc này.
+
+  > **Sửa so với bản chốt 12/08/2026 (bản đầu):** trước đó là 80/20 không có tập validation
+  > cố định, với lập luận *"CV bên trong tập train đã đóng vai đó"*. Lập luận ấy vẫn đúng về
+  > mặt kỹ thuật — thay đổi này là để bám đúng tên task 5 (*"Chia train/validation/test"*) và
+  > thông lệ 70/15/15. Đổi lại, tập train co từ 16.000 xuống 14.000 dòng, nên các chỉ số CV
+  > sẽ khác bản cũ đôi chút.
 - **Baseline:** `DummyClassifier(strategy='stratified')` — mọi model phải thắng rõ rệt
 - **4 thuật toán** (cùng split, cùng feature, cùng `random_seed = 42`):
 

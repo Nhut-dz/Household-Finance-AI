@@ -178,8 +178,16 @@ def plot_confusion_matrix(runs_dir=None, out=None, algos=None):
     bar.ax.tick_params(colors=MUTED, labelsize=8, length=0)
     bar.outline.set_visible(False)
 
-    fig.suptitle("ML01 — Confusion matrix trên tập test (4.000 hồ sơ)",
-                 color=INK, fontsize=13, y=0.98)
+    # Cỡ tập test tính từ chính dữ liệu, KHÔNG hard-code: tổng một ma trận là
+    # số hồ sơ đã chấm. Trước đây ghi cứng "4.000 hồ sơ", và khi task 5 đổi
+    # cách chia thành 70/15/15 thì tiêu đề nói sai mà hình vẫn vẽ ra bình thường.
+    n_test = int(data[data["algo"] == algos[0]][labels].to_numpy(dtype=float).sum())
+    # Đổi dấu nghìn sang kiểu Việt trên RIÊNG con số. Gọi `.replace(",", ".")`
+    # lên cả câu thì dấu phẩy ngăn vế trong tiêu đề cũng bị đổi thành dấu chấm.
+    n_test_vi = f"{n_test:,}".replace(",", ".")
+    fig.suptitle(
+        f"ML01 — Confusion matrix nhóm định hướng tài chính, tập test ({n_test_vi} hồ sơ)",
+        color=INK, fontsize=13, y=0.98)
     out = out or runs_dir / "confusion_matrix_test.png"
     fig.savefig(out, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
@@ -302,6 +310,162 @@ def plot_feature_importance(runs_dir=None, out=None, top_n: int = 10):
     fig.savefig(out, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     log.info("Ghi biểu đồ → %s", out)
+    return out
+
+
+# ------------------------------------------------------- bảng kết quả
+
+#: Cột của bảng: (nhãn hiển thị, mép phải tính theo tỉ lệ chiều ngang).
+#: Số căn phải nên toạ độ là mép PHẢI; riêng cột đầu căn trái, xử lý riêng.
+_TABLE_COLUMNS: Final[tuple[tuple[str, float], ...]] = (
+    # `n CV` đứng ngay sau tên thuật toán vì nó quyết định mấy cột sau có so
+    # được với nhau không: `results.csv` giữ dòng MỚI NHẤT của từng split, nên
+    # train lại một model với `--rows` khác sẽ ghép CV của cỡ này với test của
+    # cỡ kia, và `chênh CV→test` thành con số vô nghĩa. Hiện n ra thì chỗ lệch
+    # tự lộ; giấu đi thì người đọc tin vào một phép trừ sai.
+    ("n CV", 0.200),
+    ("macro-F1 CV", 0.330),
+    ("sd fold", 0.400),
+    ("macro-F1 test", 0.520),
+    ("accuracy test", 0.640),
+    ("chênh CV→test", 0.768),
+    ("fit (s)", 0.845),
+)
+
+#: Nền dòng dẫn đầu. Xanh rất nhạt — đủ để mắt bắt được hàng, không đủ để
+#: cạnh tranh với chữ.
+_ROW_HIGHLIGHT: Final[str] = "#eaf2fd"
+
+
+def _latest_by_algo(results: pd.DataFrame, split: str) -> pd.DataFrame:
+    """Bản ghi mới nhất của từng thuật toán ở một `split`.
+
+    `results.csv` ghi NỐI: mỗi lần train thêm một dòng chứ không đè lên dòng
+    cũ. Lấy bản mới nhất chứ không lấy trung bình — trung bình của các lần
+    chạy khác cấu hình là con số không mô tả lần chạy nào cả.
+    """
+    rows = results[results["split"] == split]
+    if rows.empty:
+        return rows.set_index("algo") if "algo" in rows else rows
+    return rows.sort_values("run_at").groupby("algo").tail(1).set_index("algo")
+
+
+def _cell(value, digits: int = 4, plus: bool = False) -> str:
+    """Số đã format, hoặc `—` khi thiếu. Ô trống phải nhìn ra là trống."""
+    if value is None or pd.isna(value):
+        return "—"
+    return f"{value:+.{digits}f}" if plus else f"{value:.{digits}f}"
+
+
+def plot_results_table(runs_dir=None, out=None):
+    """Bảng kết quả các model, vẽ thẳng từ `results.csv`.
+
+    Khác ba hình trên ở nguồn đọc: chúng cần CSV của task 11–13, hình này chỉ
+    cần `results.csv` — file mà MỌI lần train đều ghi. Nhờ vậy nó sinh được
+    ngay sau `train_bagging.py`, không phải chạy hết chuỗi đánh giá trước.
+
+    Cột `test` để `—` khi chưa chấm test lần nào. Đó là trạng thái thật sau
+    một lần train đơn lẻ, và hiện nó ra tốt hơn là bỏ trống cả cột cho người
+    đọc tự đoán.
+
+    Là BẢNG chứ không phải biểu đồ, vì việc ở đây là tra số chính xác trên
+    nhiều chỉ số cùng lúc — so sánh hình dạng đã có `model_comparison.png`.
+    Thanh ngang cuối mỗi dòng chỉ để xếp hạng bằng mắt, gốc 0 và thang 0–1.
+    """
+    runs_dir, path = _resolve(runs_dir, "results.csv")
+    results = pd.read_csv(path)
+
+    cv = _latest_by_algo(results, "cv_train")
+    test = _latest_by_algo(results, "test")
+    algos = list(dict.fromkeys(list(cv.index) + list(test.index)))
+    if not algos:
+        raise ValueError(f"{path} không có dòng nào ở split cv_train hoặc test.")
+
+    def _get(frame, algo, column):
+        if algo not in frame.index or column not in frame.columns:
+            return float("nan")
+        return frame.loc[algo, column]
+
+    table = pd.DataFrame({
+        "cv_n": [_get(cv, a, "n_rows") for a in algos],
+        "cv_f1": [_get(cv, a, "macro_f1") for a in algos],
+        "cv_sd": [_get(cv, a, "macro_f1_std") for a in algos],
+        "test_f1": [_get(test, a, "macro_f1") for a in algos],
+        "test_acc": [_get(test, a, "accuracy") for a in algos],
+        "fit": [_get(cv, a, "fit_seconds") for a in algos],
+    }, index=algos)
+    table["gap"] = table["cv_f1"] - table["test_f1"]
+
+    # Xếp theo test nếu đã chấm test, ngược lại theo CV. Trộn hai thang vào
+    # một cột sắp xếp thì thứ hạng không còn nghĩa gì.
+    rank_column = "test_f1" if table["test_f1"].notna().any() else "cv_f1"
+    table = table.sort_values(rank_column, ascending=False)
+    best = table[rank_column].idxmax()
+
+    row_height = 0.42
+    header_height = 1.55
+    fig, ax = _figure(figsize=(11, header_height + row_height * (len(table) + 1)),
+                      dpi=DPI)
+    ax.set_xlim(0, 1)
+    # Mép dưới nới xuống -0.4: nền của dòng cuối kéo tới y-0.34, dừng ylim ở 0
+    # thì đúng dòng đó bị cắt mất một nửa.
+    ax.set_ylim(-0.4, len(table) + 1.15)
+    ax.axis("off")
+
+    top = len(table) + 0.15
+
+    for index, (algo, row) in enumerate(table.iterrows()):
+        y = top - 1 - index
+        if algo == best:
+            ax.add_patch(plt.Rectangle((0, y - 0.34), 1, 0.78,
+                                       facecolor=_ROW_HIGHLIGHT,
+                                       edgecolor="none", zorder=0))
+
+        weight = "bold" if algo == best else "normal"
+        ax.text(0.005, y, algo, va="center", ha="left", fontsize=10,
+                color=INK, fontweight=weight)
+
+        n_cv = ("—" if pd.isna(row["cv_n"]) else f"{int(row['cv_n']):,}")
+        values = (n_cv, _cell(row["cv_f1"]), _cell(row["cv_sd"]),
+                  _cell(row["test_f1"]), _cell(row["test_acc"]),
+                  _cell(row["gap"], plus=True), _cell(row["fit"], digits=1))
+        for (_, x), text in zip(_TABLE_COLUMNS, values):
+            ax.text(x, y, text, va="center", ha="right", fontsize=9.5,
+                    color=INK if algo == best else INK_SECONDARY,
+                    family="monospace", fontweight=weight)
+
+        score = row[rank_column]
+        if pd.notna(score):
+            ax.add_patch(plt.Rectangle((0.865, y - 0.12), 0.13, 0.24,
+                                       facecolor=GRID, edgecolor="none", zorder=1))
+            ax.add_patch(plt.Rectangle((0.865, y - 0.12), 0.13 * float(score), 0.24,
+                                       facecolor=SERIES[0] if algo == best else AXIS,
+                                       edgecolor="none", zorder=2))
+
+    header_y = top - 0.15
+    ax.text(0.005, header_y, "thuật toán", va="center", ha="left", fontsize=8.5,
+            color=MUTED, fontweight="bold")
+    for label, x in _TABLE_COLUMNS:
+        ax.text(x, header_y, label, va="center", ha="right", fontsize=8.5,
+                color=MUTED, fontweight="bold")
+    ax.text(0.865, header_y, f"{rank_column.replace('_f1', '')} (0→1)",
+            va="center", ha="left", fontsize=8.5, color=MUTED, fontweight="bold")
+    ax.plot([0, 1], [header_y - 0.42] * 2, color=AXIS, linewidth=0.8)
+
+    seeds = sorted(set(results["random_seed"].dropna().astype(int)))
+    latest = str(results["run_at"].max())[:16].replace("T", " ")
+    subtitle = (f"nguồn results.csv · {len(results)} bản ghi · "
+                f"seed {', '.join(map(str, seeds))} · "
+                f"bản ghi mới nhất {latest} UTC")
+    ax.set_title("ML01 — kết quả theo thuật toán",
+                 color=INK, fontsize=13, pad=26, loc="left")
+    ax.text(0, 1.0, subtitle, transform=ax.transAxes, va="bottom", ha="left",
+            fontsize=8.5, color=MUTED)
+
+    out = out or runs_dir / "results_table.png"
+    fig.savefig(out, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+    log.info("Ghi bảng kết quả → %s", out)
     return out
 
 

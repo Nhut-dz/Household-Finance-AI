@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from hfml.api.schemas import (
+    Ml01ModelConfidence,
     Ml01PredictRequest,
     Ml01PredictResponse,
     build_probabilities,
@@ -150,13 +151,16 @@ def predict(req: Ml01PredictRequest) -> Ml01PredictResponse:
     confidence = next(p.probability for p in probabilities if p.label == label)
 
     return Ml01PredictResponse(
-        label=label,
-        label_vi=LABELS_VI[RecommendationGroup(label)],
-        confidence=confidence,
-        probabilities=probabilities,
-        # Dưới ngưỡng thì FE phải nói ra là kết quả chưa chắc chắn, chứ không
-        # hiển thị như một kết luận (PLAN.md §8.1).
-        low_confidence=confidence < CONFIG.confidence_threshold,
+        # Output nghiệp vụ: ĐÚNG MỘT nhóm định hướng.
+        prediction=label,
+        prediction_vi=LABELS_VI[RecommendationGroup(label)],
+        model_confidence=Ml01ModelConfidence(
+            confidence=confidence,
+            # Dưới ngưỡng thì FE phải nói ra là kết quả chưa chắc chắn, chứ
+            # không hiển thị như một kết luận (PLAN.md §8.1).
+            low_confidence=confidence < CONFIG.confidence_threshold,
+            probabilities=probabilities,
+        ),
         model_version=ML01_SLUG,
     )
 

@@ -18,7 +18,10 @@ database:
 
 training:
   n_splits: 5
-  test_size: 0.2
+  # Task 5 — chia ba: train 70% · validation 15% · test 15%.
+  # train suy ra từ phần còn lại, không khai riêng để ba số khỏi lệch tổng.
+  val_size: 0.15
+  test_size: 0.15
 
 logging:
   level: INFO           # DEBUG khi cần soi; override bằng HFML_LOG_LEVEL

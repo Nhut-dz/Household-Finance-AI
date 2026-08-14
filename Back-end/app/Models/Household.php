@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Table('tblhouseholds')]
 #[Fillable([
@@ -85,9 +86,30 @@ class Household extends Model
 
     /**
      * Các lượt hỏi đáp với Chatbot, cũ nhất trước.
+     *
+     * Đây là TẤT CẢ lượt hỏi của hộ, xuyên mọi phiên. Muốn hội thoại đang diễn
+     * ra thì đi qua `activeConversation()` — dùng trực tiếp quan hệ này để dựng
+     * lịch sử chat sẽ lôi cả hội thoại của những hồ sơ cũ đã bị thay thế.
      */
     public function consultations(): HasMany
     {
         return $this->hasMany(Consultation::class);
+    }
+
+    /**
+     * Các phiên trò chuyện, mới nhất trước.
+     */
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class)->latest('id');
+    }
+
+    /**
+     * Phiên đang mở. Tối đa một phiên nhờ partial unique index ở DB.
+     */
+    public function activeConversation(): HasOne
+    {
+        return $this->hasOne(Conversation::class)
+            ->where('status', Conversation::STATUS_ACTIVE);
     }
 }

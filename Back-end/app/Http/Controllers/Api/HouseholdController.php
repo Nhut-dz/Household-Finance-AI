@@ -133,10 +133,23 @@ class HouseholdController extends Controller
         $user = $request->resolvedUser();
 
         $household = $this->householdService->findOwned($id, $user, $request->guestSessionId());
-        $household = $this->householdService->update($household, $request->validated(), $user);
+        $result = $this->householdService->update($household, $request->validated(), $user);
 
+        // FE cần biết phiên có bị xoay hay không để quyết định xoá hội thoại
+        // đang hiển thị. Suy đoán ở FE bằng cách tự so số liệu là chép lại luật
+        // nghiệp vụ ở hai nơi, và hai nơi đó sẽ lệch nhau.
+        //
+        // Hai khoá phiên nằm TRONG `data`, không phải cạnh nó: lớp gọi API của
+        // FE trả về đúng `result.data`, nên thứ gì đặt ngoài đó sẽ không bao giờ
+        // tới nơi. Cũng không dùng `JsonResource::additional()` —
+        // `ApiResponseTrait::convertToArray()` gọi `resolve()`, mà `resolve()`
+        // bỏ qua phần `additional`.
         return $this->successResponse(
-            new HouseholdResource($household),
+            [
+                ...(new HouseholdResource($result['household']))->resolve(),
+                'conversation_id' => $result['conversation_id'],
+                'conversation_rotated' => $result['conversation_rotated'],
+            ],
             __('lang.Household_updated')
         );
     }

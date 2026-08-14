@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 # Gốc project = .../Household-Finance-ML-Python (lên 3 cấp từ file này)
 ROOT = Path(__file__).resolve().parents[2]
@@ -82,7 +83,10 @@ class Config:
     # Tham số train dùng chung cho ML01 và ML02 (PLAN.md §11).
     training: dict = field(default_factory=lambda: {
         "n_splits": 5,          # StratifiedKFold
-        "test_size": 0.2,
+        # Task 5: train 70% · validation 15% · test 15%. Phần train là số còn
+        # lại, không khai riêng để ba con số không thể lệch tổng.
+        "val_size": 0.15,
+        "test_size": 0.15,
     })
 
     # Logging — xem hfml.logger. `file` là đường dẫn tương đối từ gốc project.
@@ -104,6 +108,9 @@ class Config:
 
 def load_config(path: str | Path | None = None) -> Config:
     """Đọc config.yaml (nếu có) rồi phủ biến môi trường lên trên."""
+    # Nạp .env vào os.environ trước khi đọc getenv bên dưới. `override=False`
+    # để biến đã đặt sẵn ở OS/CI thắng file .env của máy dev.
+    load_dotenv(ROOT / ".env", override=False)
     cfg = Config()
     yaml_path = Path(path) if path else ROOT / "config" / "config.yaml"
     if yaml_path.exists():
