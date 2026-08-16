@@ -31,7 +31,7 @@ app = FastAPI(title="Household Finance ML API", version="0.3.0")
 rule_engine = RuleEngine()
 
 #: Artifact được task 14 chọn và task 15 export. Đọc từ `CONFIG.paths.runs`.
-ML01_SLUG = "ml01_xgboost_vfinal"
+ML01_SLUG = "ml01_xgboost_v1"
 
 
 @functools.lru_cache(maxsize=1)
