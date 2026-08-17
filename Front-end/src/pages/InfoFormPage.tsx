@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, ArrowLeft, ChevronDown, Loader2, Minus, Plus } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
 import {
   ASSET_LABELS,
   NEED_LABELS,
@@ -12,163 +12,14 @@ import { BIRTH_YEARS, PROVINCES } from '../data/locations'
 import { currency } from '../lib/format'
 import { createHousehold, updateHousehold } from '../api/households'
 import { ApiError, type FieldErrors } from '../lib/api'
-
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <label className="mb-2 block text-sm font-semibold text-slate-700">
-        {label}
-      </label>
-      {children}
-      {error && <p className="mt-1.5 text-xs font-medium text-rose-600">{error}</p>}
-    </div>
-  )
-}
-
-const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100'
-
-/** Dropdown dùng chung, trông giống ô nhập chữ nhưng có mũi tên chọn. */
-function Select({
-  value,
-  onChange,
-  placeholder,
-  options,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-  options: readonly string[]
-}) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`${inputClass} appearance-none pr-10 ${
-          value ? '' : 'text-slate-400'
-        }`}
-      >
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option} value={option} className="text-slate-800">
-            {option}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        size={18}
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-      />
-    </div>
-  )
-}
-
-function Stepper({
-  value,
-  onChange,
-  min = 0,
-}: {
-  value: number
-  onChange: (v: number) => void
-  min?: number
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-2 py-1.5">
-      <button
-        type="button"
-        onClick={() => onChange(Math.max(min, value - 1))}
-        className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"
-      >
-        <Minus size={16} />
-      </button>
-      <span className="flex-1 text-center text-sm font-semibold text-slate-800">
-        {value}
-      </span>
-      <button
-        type="button"
-        onClick={() => onChange(value + 1)}
-        className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"
-      >
-        <Plus size={16} />
-      </button>
-    </div>
-  )
-}
-
-/** Two-option segmented toggle (e.g. "Có nợ" / "Không nợ"). */
-function Segmented({
-  value,
-  onChange,
-  yes,
-  no,
-}: {
-  value: boolean
-  onChange: (v: boolean) => void
-  yes: string
-  no: string
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {[
-        { label: yes, val: true },
-        { label: no, val: false },
-      ].map(({ label, val }) => {
-        const active = value === val
-        return (
-          <button
-            key={label}
-            type="button"
-            onClick={() => onChange(val)}
-            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-              active
-                ? 'bg-brand-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-            }`}
-          >
-            {label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function MoneyField({
-  label,
-  value,
-  onChange,
-  error,
-}: {
-  label: string
-  value: number
-  onChange: (v: number) => void
-  error?: string
-}) {
-  return (
-    <Field label={label} error={error}>
-      <input
-        type="text"
-        inputMode="numeric"
-        value={value ? value.toLocaleString('vi-VN') : ''}
-        onChange={(e) => onChange(Number(e.target.value.replace(/\D/g, '')) || 0)}
-        placeholder="Vui lòng nhập thông tin"
-        className={inputClass}
-      />
-      <p className="mt-1.5 text-xs text-slate-400">
-        Hiển thị: {currency(value)} / tháng
-      </p>
-    </Field>
-  )
-}
+import {
+  Field,
+  MoneyField,
+  Segmented,
+  Select,
+  Stepper,
+  inputClass,
+} from '../components/FormControls'
 
 /** Blue-tinted nested box holding a debt amount + estimated monthly payment. */
 function DebtBox({
@@ -363,12 +214,14 @@ export default function InfoFormPage({
           value={profile.income}
           onChange={(income) => onChange({ income })}
           error={errorOf('average_monthly_income')}
+          suffix=" / tháng"
         />
         <MoneyField
           label="Chi tiêu trung bình tháng của gia đình"
           value={profile.spending}
           onChange={(spending) => onChange({ spending })}
           error={errorOf('average_monthly_expense')}
+          suffix=" / tháng"
         />
 
         <Field label="Gia đình có nợ không" error={errorOf('has_debt')}>

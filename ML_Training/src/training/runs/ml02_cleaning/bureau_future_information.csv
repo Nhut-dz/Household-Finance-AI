@@ -1,0 +1,4 @@
+column,n_future_rows,rate,max_days_after,n_customers
+DAYS_CREDIT,0,0.0,0.0,0
+DAYS_ENDDATE_FACT,0,0.0,0.0,0
+DAYS_CREDIT_UPDATE,17,9.904289606088924e-06,372.0,17

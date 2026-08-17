@@ -1,0 +1,14 @@
+{
+  "loaded": true,
+  "proba_matches": true,
+  "max_proba_diff": 0.0,
+  "feature_names_match": true,
+  "n_features": 17,
+  "threshold_applied": true,
+  "threshold_is_not_half": true,
+  "labels_returned": [
+    "HIGH_RISK",
+    "LOW_RISK"
+  ],
+  "slug": "ml02_xgboost_reduced_vfinal"
+}

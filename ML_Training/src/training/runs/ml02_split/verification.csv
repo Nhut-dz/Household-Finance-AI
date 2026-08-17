@@ -1,0 +1,6 @@
+check,passed,measured,note
+splits_are_disjoint,True,0 hồ sơ nằm ở hai tập,Một hồ sơ ở cả train lẫn test là rò rỉ theo nghĩa đen.
+splits_cover_every_row,True,"307,511 / 307,511 dòng (đã loại 0 dòng bất hợp lệ khỏi train)",Dòng rơi ra ngoài cả ba tập là dữ liệu bị bỏ quên không ai biết.
+split_sizes_match_the_plan,True,train 70.00% (chốt 70%) · validation 15.00% (chốt 15%) · test 15.00% (chốt 15%),"Cắt hai lần mà quên quy đổi tỉ lệ lần hai thì validation chỉ được 12,75%."
+target_rate_is_preserved,True,lệch nhiều nhất 0.00σ so với tỉ lệ chung 8.0729% (ngưỡng 3.0σ),Quên `stratify` thì tỉ lệ dương ba tập lệch nhau và PR-AUC hết so được.
+train_has_no_invalid_rows,True,0 dòng mang cờ INVALID_ROW trong train,Task 2 hẹn loại chúng khỏi RIÊNG train; validation/test giữ nguyên.

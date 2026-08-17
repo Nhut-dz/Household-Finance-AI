@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-08-16T01:46:30+00:00",
+  "task": "ML02 task 14 — Chọn model tốt nhất",
+  "selected_model": "ml02_xgboost_reduced",
+  "algorithm": "xgboost",
+  "deploy_feature_set": "reduced",
+  "reference_feature_set": "full",
+  "runner_up": "bagging",
+  "selection_metric": "pr_auc",
+  "selected_using": "validation only",
+  "reasons": [
+    "PR-AUC cao nhất ở bộ reduced (0.1711) — chỉ số chọn model của ML02 (§7.3).",
+    "Khoảng cách với bagging (+0.0102) PHÂN BIỆT ĐƯỢC với nhiễu: khoảng tin cậy 95% [+0.0045, +0.0151] không chứa 0, thắng 100% số lần lấy mẫu.",
+    "Cùng thuật toán cũng dẫn đầu ở bộ full, nên lựa chọn không phụ thuộc vào việc dùng bộ feature nào.",
+    "Bộ triển khai là reduced chứ không phải full: bộ kia có EXT_SOURCE_1/2/3 mà form người dùng KHÔNG thu được (§7.2)."
+  ],
+  "calibration": {
+    "method": "isotonic",
+    "fitted_on": "validation",
+    "gap_validation": -0.0003865804298912475,
+    "gap_test": -0.0008706166538397748
+  },
+  "threshold": {
+    "value": 0.13029100000858307,
+    "rule": "F1 lớp dương lớn nhất trên validation (F1 = 0.2474). Chưa có ma trận chi phí thật nên F1 là lựa chọn trung tính, KHÔNG phải tối ưu — xem model_card.",
+    "chosen_on": "validation",
+    "caveat": "F1 coi bỏ lọt một ca vỡ nợ và gắn nhãn sai một hồ sơ tốt là đắt như nhau. Tín dụng thật thì không — ngưỡng đúng phải suy từ ma trận chi phí của tổ chức cho vay."
+  },
+  "metrics_validation": {
+    "pr_auc": 0.16956510344024006,
+    "pr_auc_lift": 2.100303309986024,
+    "roc_auc": 0.6934774497518099,
+    "precision_positive": 0.17929536679536678,
+    "recall_positive": 0.39903329752953814,
+    "f1_positive": 0.24741924741924742,
+    "accuracy": 0.8040193379148871,
+    "balanced_accuracy": 0.6193100596083415,
+    "brier": 0.0710054587758037,
+    "base_rate": 0.08073362672621241,
+    "threshold": 0.13029100000858307
+  },
+  "metrics_test": {
+    "pr_auc": 0.1713923056840529,
+    "pr_auc_lift": 2.122935790625217,
+    "roc_auc": 0.6952259751598853,
+    "precision_positive": 0.18044391121775644,
+    "recall_positive": 0.4038668098818475,
+    "f1_positive": 0.2494402520938718,
+    "accuracy": 0.8037808658703146,
+    "balanced_accuracy": 0.621384858847487,
+    "brier": 0.07094991683514479,
+    "base_rate": 0.08073362672621241,
+    "threshold": 0.13029100000858307
+  },
+  "metrics_test_reference_set": {
+    "pr_auc": 0.2471564245223239,
+    "pr_auc_lift": 3.061381416203339,
+    "roc_auc": 0.7644182395389663,
+    "precision_positive": 0.20780843310775637,
+    "recall_positive": 0.5359828141783028,
+    "f1_positive": 0.2994973366344062,
+    "accuracy": 0.7975805927114271,
+    "balanced_accuracy": 0.6782689817890548,
+    "brier": 0.06737690325807591,
+    "base_rate": 0.08073362672621241,
+    "threshold": 0.13029100000858307
+  },
+  "generalisation_gap_pr_auc": -0.001827202243812831,
+  "test_opened": true,
+  "test_opened_after_decision": true,
+  "exported": true,
+  "export_note": "Export artifact là task 15.",
+  "exported_slug": "ml02_xgboost_reduced_vfinal"
+}

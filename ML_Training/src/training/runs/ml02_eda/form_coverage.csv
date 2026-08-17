@@ -1,0 +1,24 @@
+field,source,home_credit,iv,band,note
+household_size,household,CNT_FAM_MEMBERS,0.005267547803925801,gần như vô dụng,
+children_count,household,CNT_CHILDREN,0.005726750480695943,gần như vô dụng,
+birth_year,household,DAYS_BIRTH,0.08416726520645408,yếu,đổi sang tuổi
+average_monthly_income,household,AMT_INCOME_TOTAL,0.011703988162714212,gần như vô dụng,"CHỈ dùng làm mẫu số của feature tỉ lệ, không vào X (§2.1)"
+average_monthly_expense,household,—,,—,Home Credit không có cột chi tiêu — chỉ phục vụ tầng rule
+savings_amount,household,—,,—,Home Credit không có cột tiết kiệm
+total_current_debt,household,—,,—,"gần nhất là bureau.AMT_CREDIT_SUM_DEBT, không phải cùng một thứ"
+monthly_debt_payment,household,—,,—,"AMT_ANNUITY là kỳ trả của khoản ĐANG XIN, không phải nợ đang có"
+borrower_age,loan,DAYS_BIRTH,0.08416726520645408,yếu,
+gender,loan,CODE_GENDER,0.03859945660621288,yếu,
+marital_status,loan,NAME_FAMILY_STATUS,0.021704502291040186,yếu,
+education_level,loan,NAME_EDUCATION_TYPE,0.050737952116429334,yếu,
+occupation,loan,OCCUPATION_TYPE,0.07586649233865832,yếu,
+employment_years,loan,DAYS_EMPLOYED,0.11114017495231135,trung bình,
+loan_amount,loan,AMT_CREDIT,0.04505506608589681,yếu,
+monthly_payment,loan,AMT_ANNUITY,0.026603075539947233,yếu,
+asset_price,loan,AMT_GOODS_PRICE,0.08406163387077001,yếu,
+loan_term_months,loan,—,,—,suy ra từ AMT_CREDIT/AMT_ANNUITY
+loan_purpose,loan,—,,—,"chỉ có ở previous_application, 95,8% là XAP/XNA"
+previous_loan_count,loan,BUREAU_LOAN_COUNT,,—,
+late_payment_count,loan,BUREAU_OVERDUE_LOAN_COUNT,,—,
+has_overdue_loan,loan,BUREAU_HAS_OVERDUE,,—,
+total_overdue_amount,loan,BUREAU_TOTAL_OVERDUE,,—,

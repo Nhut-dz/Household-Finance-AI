@@ -1,0 +1,9 @@
+algo,feature_set,true_negative,false_positive,false_negative,true_positive,threshold
+decision_tree,reduced,26247,16156,1522,2202,0.5
+decision_tree,full,27626,14777,1321,2403,0.5
+bagging,reduced,30099,12304,1687,2037,0.5
+bagging,full,31438,10965,1444,2280,0.5
+random_forest,reduced,26992,15411,1477,2247,0.5
+random_forest,full,29655,12748,1223,2501,0.5
+xgboost,reduced,29567,12836,1560,2164,0.5
+xgboost,full,32075,10328,1381,2343,0.5

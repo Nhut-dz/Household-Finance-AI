@@ -23,6 +23,10 @@ enum ApiEnum: string
     case HOUSEHOLD_PROPOSAL = 'household.proposal';
     case HOUSEHOLD_PREDICTION = 'household.prediction';
 
+    case HOUSEHOLD_LOAN_APPLICATION_SHOW = 'household.loan-application.show';
+    case HOUSEHOLD_LOAN_APPLICATION_STORE = 'household.loan-application.store';
+    case HOUSEHOLD_LOAN_APPLICATION_DESTROY = 'household.loan-application.destroy';
+
     case HOUSEHOLD_MESSAGE_INDEX = 'household.message.index';
     case HOUSEHOLD_MESSAGE_STORE = 'household.message.store';
 

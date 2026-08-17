@@ -1,0 +1,5 @@
+algorithm,mechanism,model_params,estimator_params,effective_ratio
+decision_tree,class_weight='balanced' trên chính model,{'class_weight': 'balanced'},—,11.387150050352467
+bagging,"class_weight='balanced' trên ESTIMATOR CON, vì BaggingClassifier không có tham số này",—,{'class_weight': 'balanced'},11.387150050352467
+random_forest,class_weight='balanced' trên chính model,{'class_weight': 'balanced'},—,11.387150050352467
+xgboost,scale_pos_weight = n_âm / n_dương của tập train,{'scale_pos_weight': 11.387150050352467},—,11.387150050352467

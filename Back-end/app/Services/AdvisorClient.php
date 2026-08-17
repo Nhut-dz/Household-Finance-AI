@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\IntentCodeEnum;
 use App\Exceptions\AdvisorUnavailableException;
 use App\Exceptions\MissingBirthYearException;
 use App\Models\Household;
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Log;
  * Cấu hình qua .env: PYTHON_ADVISOR_URL, PYTHON_ADVISOR_TIMEOUT,
  * PYTHON_ADVISOR_TOKEN. Không cấu hình thì mọi lời gọi trả 503.
  *
- * @phpstan-type AdvisorAnswer array{response_text: string, model_used: string, suggested_questions: array<int, string>|null, tokens_used: int|null}
+ * @phpstan-type AdvisorAnswer array{response_text: string, model_used: string, suggested_questions: array<int, string>|null, tokens_used: int|null, intent_code: string|null, requires_loan_application: bool}
  */
 class AdvisorClient
 {
@@ -61,11 +62,20 @@ class AdvisorClient
     /**
      * Gửi câu hỏi kèm hồ sơ hộ gia đình và nhận lại câu trả lời của AI.
      *
+     * `$intent` chỉ có khi người dùng bấm một chip gợi ý; câu tự gõ để `null`
+     * và service Python sẽ tự đoán ý định bằng từ khoá. Hai intent chạy model
+     * CHỈ kích hoạt được qua tham số này — chúng cố ý không đoán được từ nhãn
+     * tiếng Việt, xem `IntentCodeEnum`.
+     *
+     * Dữ liệu đính kèm được chọn theo intent chứ không gửi hết mọi lúc: dựng
+     * 17 feature ML01 cho một câu hỏi về quy tắc 50/30/20 là công vô ích, và
+     * tệ hơn là nó ném lỗi thiếu năm sinh cho một luồng vốn không cần tuổi.
+     *
      * @return AdvisorAnswer
      *
      * @throws AdvisorUnavailableException
      */
-    public function ask(Household $household, string $question): array
+    public function ask(Household $household, string $question, ?IntentCodeEnum $intent = null): array
     {
         $baseUrl = config('services.python_advisor.url');
 
@@ -82,7 +92,10 @@ class AdvisorClient
                 ->withToken((string) config('services.python_advisor.token'))
                 ->post('/advise', [
                     'question' => $question,
+                    'intent_code' => $intent?->value,
                     'household' => $this->householdPayload($household),
+                    'ml_features' => $this->mlFeaturesFor($household, $intent),
+                    'loan_application' => $this->loanApplicationFor($household, $intent),
                 ]);
         } catch (ConnectionException $e) {
             Log::warning('Không kết nối được service tư vấn AI.', ['error' => $e->getMessage()]);
@@ -213,6 +226,80 @@ class AdvisorClient
     }
 
     /**
+     * 17 feature của ML01, chỉ dựng khi intent thực sự cần.
+     *
+     * Nuốt `MissingBirthYearException` ở đây là CÓ CHỦ Ý: trong luồng chat,
+     * hồ sơ thiếu năm sinh không được phép làm hỏng cả câu hỏi. Gửi `null`
+     * xuống thì service Python nói rõ thiếu gì và chỉ chỗ bổ sung — vẫn là
+     * một câu trả lời dùng được, thay vì một lỗi 500.
+     *
+     * Ở luồng `/predict` thì ngược lại: ngoại lệ được ném ra tới FE, vì ở đó
+     * người dùng đang yêu cầu ĐÚNG kết quả phân loại chứ không phải hội thoại.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function mlFeaturesFor(Household $household, ?IntentCodeEnum $intent): ?array
+    {
+        if ($intent === null || ! $intent->needsMlFeatures()) {
+            return null;
+        }
+
+        try {
+            return $this->predictionPayload($household);
+        } catch (MissingBirthYearException $e) {
+            Log::info('Bỏ qua ML01 trong luồng chat vì hồ sơ thiếu năm sinh.', [
+                'household_id' => $household->id,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Thông tin khoản vay của hộ, chỉ nạp khi intent thực sự cần.
+     *
+     * `null` = hộ chưa khai. Đó là trạng thái bình thường chứ không phải lỗi:
+     * service Python sẽ hướng người dùng sang màn "Thông tin khoản vay" thay
+     * vì chạy ML02 trên dữ liệu rỗng — chạy thì vẫn ra một xác suất, và đó là
+     * con số vô nghĩa mà không có gì báo hiệu.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function loanApplicationFor(Household $household, ?IntentCodeEnum $intent): ?array
+    {
+        if ($intent === null || ! $intent->needsLoanApplication()) {
+            return null;
+        }
+
+        $application = $household->loanApplication()->first();
+
+        if ($application === null) {
+            return null;
+        }
+
+        return [
+            'borrower_age' => $application->borrower_age,
+            'gender' => $application->gender->value,
+            'marital_status' => $application->marital_status->value,
+            'children_count' => $application->children_count,
+            'education_level' => $application->education_level->value,
+            'occupation' => $application->occupation->value,
+            'employment_years' => (float) $application->employment_years,
+
+            'loan_amount' => (float) $application->loan_amount,
+            'loan_term_months' => $application->loan_term_months,
+            'monthly_payment' => (float) $application->monthly_payment,
+            'asset_price' => (float) $application->asset_price,
+            'loan_purpose' => $application->loan_purpose->value,
+
+            'previous_loan_count' => $application->previous_loan_count,
+            'late_payment_count' => $application->late_payment_count,
+            'has_overdue_loan' => $application->has_overdue_loan,
+            'total_overdue_amount' => (float) $application->total_overdue_amount,
+        ];
+    }
+
+    /**
      * Hồ sơ gửi sang Python, dùng đúng tên cột trong DB để hai bên khỏi lệch.
      *
      * @return array<string, mixed>
@@ -250,6 +337,18 @@ class AdvisorClient
             'model_used' => (string) ($payload['model_used'] ?? 'PYTHON-ADVISOR'),
             'suggested_questions' => is_array($suggested) ? array_values($suggested) : null,
             'tokens_used' => isset($payload['tokens_used']) ? (int) $payload['tokens_used'] : null,
+
+            // Ý định mà engine THỰC SỰ đã chạy. Trả ngược lên FE để kiểm chứng
+            // được rằng chip đã vào đúng nhánh — không có trường này thì câu
+            // "chip có chạy đúng model không" phải đọc log server mới biết.
+            'intent_code' => isset($payload['intent_code'])
+                ? (string) $payload['intent_code']
+                : null,
+
+            // ML02 báo hộ chưa khai thông tin khoản vay. FE dựa vào đây để hiện
+            // nút điều hướng thay vì chỉ in ra một đoạn chữ bảo người dùng tự
+            // đi tìm màn nhập.
+            'requires_loan_application' => (bool) ($payload['requires_loan_application'] ?? false),
         ];
     }
 }

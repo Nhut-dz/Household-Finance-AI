@@ -1,0 +1,11 @@
+{
+  "task": "ML02 task 11 — Đánh giá model",
+  "evaluated_on": "validation",
+  "test_set_touched": false,
+  "n_models": 8,
+  "reporting_threshold": 0.5,
+  "threshold_note": "0,5 chỉ là quy ước để bảng có một cột so được. Ngưỡng nghiệp vụ LOW_RISK/HIGH_RISK chốt ở task 14 sau khi hiệu chuẩn.",
+  "selection_metric": "pr_auc",
+  "ranking_done_here": false,
+  "ranking_note": "Xếp hạng và chọn model là task 12 và 14."
+}

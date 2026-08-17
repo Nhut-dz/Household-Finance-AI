@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-08-15T06:41:55+00:00",
+  "task": "ML02 task 4 — Xử lý class imbalance",
+  "strategy": "cost_sensitive_learning",
+  "resampling_used": false,
+  "reference_scale_pos_weight": 11.387150050352467,
+  "note": "Số tham chiếu đo trên toàn bộ dataset. Số dùng khi train phải tính lại trên riêng tập train.",
+  "imbalance": {
+    "n_rows": 307511,
+    "n_positive": 24825,
+    "n_negative": 282686,
+    "positive_rate": 0.08072881945686496,
+    "scale_pos_weight": 11.387150050352467,
+    "majority_class_accuracy": 0.9192711805431351
+  }
+}
