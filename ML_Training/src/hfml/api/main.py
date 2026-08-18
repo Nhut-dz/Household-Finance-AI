@@ -475,11 +475,18 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     # Tóm tắt tầng rule, dùng lại cho cả câu trả lời thường lẫn phần diễn giải
     # của ML01 — hai nơi nói khác nhau về cùng một hồ sơ là chuyện phải tránh.
+    if net_cashflow < 0:
+        cashflow_line = f"Thâm hụt (bội chi) khoảng {abs(net_cashflow):,.0f} VNĐ/tháng ({rb01.get('status')})"
+    else:
+        cashflow_line = f"Dư thừa khoảng {net_cashflow:,.0f} VNĐ ({rb01.get('status')})"
+
+    elderly_str = " (Có phụng dưỡng người già ➔ Nâng đệm dự phòng lên 6 tháng)" if has_dependents else ""
+
     rule_summary = (
         f"📌 **Đánh giá tổng quan ({overall_status})**:\n"
-        f"- Dòng tiền hàng tháng (RB01): Dư thừa khoảng {net_cashflow:,.0f} VNĐ ({rb01.get('status')}).\n"
+        f"- Dòng tiền hàng tháng (RB01): {cashflow_line}.\n"
         f"- Nợ, Tiết kiệm & Tài sản: Nợ {debt_desc} | Tiết kiệm {savings_desc} | Tài sản: {asset_desc}.\n"
-        f"- Sức khỏe tài chính (RB02): {rb02.get('status')} (Tỷ lệ DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
+        f"- Sức khỏe tài chính (RB02): {rb02.get('status')} (Tỷ lệ DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng{elderly_str}, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
         f"- Khả năng vay vốn (RB05): Trả nợ đề xuất thêm tối đa {max_add_payment:,.0f} VNĐ/tháng ({rb05.get('status')})."
     )
 
