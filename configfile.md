@@ -63,7 +63,8 @@ arrator.py
 
 - **Vị trí sửa đổi**:
   - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\llm\client.py (Hàm _template_answer)
-  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py (Bảng status_map & ule_names)
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py (Bảng status_map & 
+ule_names)
 - **Nội dung cập nhật**:
   - Ánh xạ toàn bộ mã kỹ thuật khô cứng (CRITICAL, DEFICIT, REJECTED, RB01, RB02, RB05) sang cụm từ tiếng Việt tự nhiên:
     - CRITICAL ➔ **"Cảnh báo khẩn cấp"**
