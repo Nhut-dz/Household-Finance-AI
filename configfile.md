@@ -69,8 +69,12 @@ arrator.py
 
 ---
 
-### 📌 [2026-08-18 17:08:00] - Nâng cấp Tầng Rendering Giao diện Frontend (ChatbotPage.tsx) cho Định dạng Markdown
+### 📌 [2026-08-18 17:21:00] - Hiển thị Tên Tài sản Chi tiết (Nhà ở, Đất đai, Phương tiện (Xe)) & Nâng cấp Render Markdown HTML (FormattedText)
 
-- **Vị trí sửa đổi**: D:\CS116\Household-Finance-AI\Front-end\src\pages\ChatbotPage.tsx
-- **Nguyên nhân**: Trước đây giao diện Frontend dùng thẻ <p className="whitespace-pre-line"> thô nên các ký tự định dạng Markdown như **200,000,000 VNĐ** bị hiển thị nguyên văn hai dấu sao **, làm văn bản bị xấu và khó đọc.
-- **Nội dung cập nhật**: Xây dựng component FormattedText chuyển đổi tự động các cú pháp Markdown **chữ in đậm**, _chữ in nghiêng_ thành các thẻ HTML <strong> chuẩn đẹp, đồng thời thêm dấu chấm đầu dòng màu tím cho danh sách gạch đầu dòng -.
+- **Vị trí sửa đổi**:
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py
+  - D:\CS116\Household-Finance-AI\Front-end\src\pages\ChatbotPage.tsx
+- **Nội dung cập nhật**:
+  1. Tách biệt house ➔ **"Nhà ở"**, land ➔ **"Đất đai"**, car ➔ **"Phương tiện (Xe)"**. Kết quả hiển thị chính xác từng loại tài sản: "Tài sản: Nhà ở, Đất đai, Phương tiện (Xe)".
+  2. Đưa thành phần đánh giá tài sản tích lũy trực tiếp vào khối phân tích tổng quan ML01 / Chẩn đoán sức khỏe tài chính.
+  3. Nhúng component FormattedText vào ChatbotPage.tsx chuyển toàn bộ ký tự **chữ in đậm** thành thẻ HTML <strong> sắc nét và dấu gạch đầu dòng màu tím cho giao diện Frontend.
