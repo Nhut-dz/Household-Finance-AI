@@ -1,48 +1,76 @@
-# BÁO CÁO CÁC FILE ĐÃ CHỈNH SỬA VÀ CẬP NHẬT (CONFIGFILE.MD)
-
-Ngày cập nhật: **17/08/2026**
-Nội dung công việc: **Sửa lỗi đánh giá nhãn ML01 (Thu nhập cao, chi phí thấp, tiết kiệm = 0 bị đánh nhãn sai thành EMERGENCY).**
+﻿# BÁO CÁO CÁC FILE ĐÃ CHỈNH SỬA VÀ CẬP NHẬT (CONFIGFILE.MD)
 
 ---
 
-## 📋 DANH SÁCH FILE BỊ SỬA ĐỔI / CẬP NHẬT
+## 📜 NGUYÊN TẮC LÀM VIỆC & QUY TRÌNH THAY ĐỔI (OPERATING PRINCIPLES)
 
-### 1. File sửa đổi logic chính: `ML_Training/src/hfml/ml/ml01_recommendation/labeler.py`
-- **Đường dẫn file**: `d:\CS116\DAHP\Household-Finance-ML-Python\src\hfml\ml\ml01_recommendation\labeler.py` (và `d:\CS116\Household-Finance-AI\ML_Training\src\hfml\ml\ml01_recommendation\labeler.py`)
-- **Vị trí sửa**: Dòng `123 - 130` (trong hàm `label_frame`).
-- **Nội dung sửa chi tiết**:
-  - **Mã nguồn cũ (Trước khi sửa)**:
-    ```python
-    conditions = [
-        (ind["savings_rate"] < 0) | (ind["savings_months"] < t.emergency_savings_months),
-        ind["dti"] >= t.debt_focus_dti,
-        (ind["savings_months"] < t.buffer_savings_months)
-        | (ind["savings_rate"] < t.buffer_savings_rate),
-    ]
-    ```
-  - **Mã nguồn mới (Sau khi sửa)**:
-    ```python
-    conditions = [
-        (ind["savings_rate"] < 0)
-        | ((ind["savings_months"] < t.emergency_savings_months) & (ind["savings_rate"] < t.buffer_savings_rate)),
-        ind["dti"] >= t.debt_focus_dti,
-        (ind["savings_months"] < t.buffer_savings_months)
-        | (ind["savings_rate"] < t.buffer_savings_rate),
-    ]
-    ```
-- **Giải thích tác dụng**:
-  Yêu cầu kết hợp toán tử `&` kiểm tra `savings_rate < 0.10` khi `savings_months < 1.0`. Nếu một hộ có thu nhập 200M, chi 20M (tỷ lệ tiết kiệm/thặng dư `savings_rate = 90%`), hộ này sẽ **KHÔNG bị ép vào nhóm EMERGENCY (Nguy cấp)** nữa, mà được hạ xuống nhóm **`BUILD_BUFFER` (Cần xây dựng quỹ dự phòng)** đúng với bản chất tài chính.
+1. **Ghi chép đầy đủ Timeline (Ngày & Giờ)**: Mọi thao tác kiểm tra, sửa đổi code hoặc thêm mới file đều phải được đánh dấu mốc thời gian rõ ràng (YYYY-MM-DD HH:mm:ss).
+2. **Liệt kê chi tiết vị trí & nội dung**: Nêu rõ tên file, đường dẫn tuyệt đối, vị trí dòng bị sửa hoặc thêm mới, nguyên nhân và tác dụng của thay đổi.
+3. **Quy tắc Kiểm tra trước - Hỏi ý kiến trước khi Sửa**:
+   - **Bước 1**: Rà soát, phát hiện và phân tích vấn đề chi tiết trước.
+   - **Bước 2**: Đưa danh sách vấn đề ra cho Người dùng (User) xem xét và hỏi ý kiến có muốn fix hay không.
+   - **Bước 3**: **CHỈ thực hiện sửa code khi Người dùng đồng ý.**
 
 ---
 
-### 2. Files Artifact mô hình ML được huấn luyện lại:
-- **`src/training/runs/ml01_xgboost_v1.joblib`** (File artifact mô hình XGBoost mới được retrain).
-- **`src/training/runs/ml01_xgboost_vfinal.joblib`** (File mô hình chạy chính thức cho API endpoint `/predict`).
-- **`src/training/runs/results.csv`** (Ghi nhận nhật ký lượt train mới).
+## 🕒 TIMELINE NHẬT KÝ THAY ĐỔI NỘI DUNG CODE (NHẬT KÝ CHI TIẾT)
+
+### 📌 [2026-08-17 09:48:00] - Fix lỗi gán nhãn ML01 (Thu nhập cao, chi phí thấp, tiết kiệm = 0 bị đánh nhãn sai thành EMERGENCY)
+
+- **Vị trí sửa**: ML_Training/src/hfml/ml/ml01_recommendation/labeler.py (Dòng 123 – 130)
+- **Đường dẫn**: d:\CS116\DAHP\Household-Finance-ML-Python\src\hfml\ml\ml01_recommendation\labeler.py và D:\CS116\Household-Finance-AI\ML_Training\src\hfml\ml\ml01_recommendation\labeler.py
+- **Nội dung thay đổi**:
+  - *Trước*: (ind["savings_rate"] < 0) | (ind["savings_months"] < t.emergency_savings_months)
+  - *Sau*: (ind["savings_rate"] < 0) | ((ind["savings_months"] < t.emergency_savings_months) & (ind["savings_rate"] < t.buffer_savings_rate))
+- **Tác dụng**: Giúp các hộ thu nhập cao, chi phí thấp (dư thặng dư lớn nhưng chưa có tiết kiệm) không bị gán nhãn sai thành Nguy cấp (EMERGENCY), mà được chuyển đúng về nhóm BUILD_BUFFER.
 
 ---
 
-## ✅ KẾT QUẢ ĐẠT ĐƯỢC SAU KHI FIX
-- Với số liệu test: **Thu nhập = 200.000.000 VNĐ**, **Chi phí = 20.000.000 VNĐ**, **Tiết kiệm = 0 VNĐ**, **Nợ = 0 VNĐ**:
-  - **Trước khi sửa**: Dự đoán nhãn = `EMERGENCY` (Tài chính nguy cấp / Mức rủi ro cao).
-  - **Sau khi sửa & Retrain**: Dự đoán nhãn = **`BUILD_BUFFER` (Cần xây dựng quỹ dự phòng)** với độ tin cậy **99.94%**.
+### 📌 [2026-08-17 11:02:00] - Huấn luyện lại và đồng bộ Mô hình ML01 cho thư mục Household-Finance-AI/ML_Training
+
+- **Thao tác**: Chạy retrain mô hình XGBoost ML01 trên tập dữ liệu gán nhãn chuẩn mới tại D:\CS116\Household-Finance-AI\ML_Training.
+
+---
+
+### 📌 [2026-08-18 14:47:00] - Thực thi Toàn bộ Migration CSDL PostgreSQL bằng PHP 8.4 (C:\php84\php.exe)
+
+- **Trạng thái**: Toàn bộ 14/14 file migration trong thư mục database/migrations đã đạt trạng thái 100% Ran trên CSDL PostgreSQL (household_finance). Tạo bảng 	blconversations và 	blloan_applications kết nối thông suốt.
+
+---
+
+### 📌 [2026-08-18 15:56:00] - Nâng cấp Bộ Diễn Đạt Văn Bản Động cho ML01 & Rule Base trong 
+arrator.py
+
+- **Vị trí sửa đổi**: D:\CS116\Household-Finance-AI\ML_Training\src\hfml\llm\narrator.py
+- **Nội dung cập nhật**: Nâng cấp toàn bộ câu văn nhận xét và tư vấn cho 4 nhóm định hướng ML01 (EMERGENCY, DEBT_FOCUS, BUILD_BUFFER, GROWTH) thành văn phong tài chính cá nhân tự nhiên, thân thiện.
+
+---
+
+### 📌 [2026-08-18 16:30:00] - Fix Lỗi Dữ liệu Tài sản (ssets), Phụng dưỡng người già (supports_elderly) & Dòng tiền thâm hụt
+
+- **Vị trí sửa đổi**:
+  - D:\CS116\Household-Finance-AI\Back-end\app\Services\AdvisorClient.php
+  - d:\CS116\DAHP\Household-Finance-BE-App\app\Services\AdvisorClient.php
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py
+- **Nội dung cập nhật**:
+  1. Thêm nạp mảng ssets (house, car, land) trong householdPayload() phía Laravel để truyền sang Python API. Kết quả hiển thị đúng "Tài sản: Bất động sản, Phương tiện (Xe)".
+  2. Kết nối biến supports_elderly để ghi nhận mốc đệm dự phòng khẩn cấp 6 tháng cho hộ có người già.
+  3. Xử lý câu hiển thị số dư thâm hụt khi dòng tiền bị âm: "Thâm hụt (bội chi) khoảng 25,000,000 VNĐ/tháng (DEFICIT)".
+
+---
+
+### 📌 [2026-08-18 17:00:00] - Nâng cấp Tầng LLM Context Builder & Chuyển đổi Mã Kỹ thuật sang Tiếng Việt Tự nhiên (Theo OKR F05)
+
+- **Vị trí sửa đổi**:
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\llm\client.py (Hàm _template_answer)
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py (Bảng status_map & ule_names)
+- **Nội dung cập nhật**:
+  - Ánh xạ toàn bộ mã kỹ thuật khô cứng (CRITICAL, DEFICIT, REJECTED, RB01, RB02, RB05) sang cụm từ tiếng Việt tự nhiên:
+    - CRITICAL ➔ **"Cảnh báo khẩn cấp"**
+    - DEFICIT ➔ **"Bội chi / Thâm hụt"**
+    - REJECTED ➔ **"Chưa nên vay thêm"**
+    - POSITIVE ➔ **"Dồi dào thặng dư"**
+    - GOOD ➔ **"Tốt & An toàn"**
+    - RB01 ➔ **"Dòng tiền hàng tháng"**
+    - RB02 ➔ **"Sức khỏe tài chính & Đệm dự phòng"**
+  - Đồng bộ 100% với 18 Task trong Module F05 của bảng Google Sheet OKR-AI-Acdemi-HE-2026.
