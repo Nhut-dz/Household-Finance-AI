@@ -306,7 +306,7 @@ def _advise_financial_health(req: AdviseRequest, rule_summary: str) -> AdviseRes
 
 
 def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
-    """Nhánh `LOAN_RISK_DIAGNOSIS` — thông tin khoản vay → ML02 → LLM giải thích.
+    """Nhánh LOAN_RISK_DIAGNOSIS — thông tin khoản vay → ML02 → LLM giải thích.
 
     Hai cửa chặn trước khi tới model, theo đúng thứ tự:
 
@@ -334,20 +334,55 @@ def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
             requires_loan_application=True,
         )
 
-    # Chạy Rule + ML02 qua module inference, KHÔNG gọi LLM.
-    #
-    # Dùng `analyze()` chứ không phải `chat()`. Đã sập đúng vì chuyện này khi
-    # test trên UI: `chat()` gọi Gemini, và khi hết quota thì client tự retry
-    # với backoff nên vượt hẳn 30 giây mà Laravel chờ
-    # (`PYTHON_ADVISOR_TIMEOUT`). Người dùng chỉ thấy "Không kết nối được
-    # service tư vấn AI", còn log Python thì dừng lặng lẽ sau bước dựng context.
-    #
-    # `/advise` là bề mặt ĐỒNG BỘ với Laravel, và nhánh ML01 bên trên cũng chỉ
-    # dùng template (`explain_ml01`). Nhánh này phải đối xứng: `analyze()` chạy
-    # ~150ms, không tốn quota, không phụ thuộc mạng ngoài. Đường có LLM là
-    # `/api/v1/chat` — nơi timeout khai riêng và client biết mình đang chờ.
-    result = inference_engine.analyze(
-        normalize_payload(req.household, req.loan_application))
+    hh_dict = dict(req.household)
+    if "assets" in hh_dict and isinstance(hh_dict["assets"], list):
+        norm_assets = []
+        for a in hh_dict["assets"]:
+            a_str = str(a.value if hasattr(a, "value") else a).lower()
+            if a_str in ["house", "land", "real_estate"]:
+                norm_assets.append("real_estate")
+            elif a_str in ["car", "vehicle"]:
+                norm_assets.append("vehicle")
+            elif a_str in ["cash", "gold", "insurance", "investment"]:
+                norm_assets.append(a_str)
+        hh_dict["assets"] = list(dict.fromkeys(norm_assets))
+
+    loan_dict = dict(req.loan_application)
+    if "occupation" in loan_dict and loan_dict["occupation"]:
+        occ_str = str(loan_dict["occupation"]).lower()
+        if "it" in occ_str or "công nghệ" in occ_str:
+            loan_dict["occupation"] = "it_staff"
+        elif "văn phòng" in occ_str or "office" in occ_str:
+            loan_dict["occupation"] = "office_staff"
+
+    if "education_level" in loan_dict and loan_dict["education_level"]:
+        edu_str = str(loan_dict["education_level"]).lower()
+        if edu_str in ["university", "đại học", "dai_hoc"]:
+            loan_dict["education_level"] = "higher"
+        elif edu_str in ["master", "doctor", "sau đại học", "academic"]:
+            loan_dict["education_level"] = "academic_degree"
+        elif edu_str in ["high_school", "trung học", "thpt"]:
+            loan_dict["education_level"] = "secondary"
+
+    if "gender" in loan_dict and loan_dict["gender"]:
+        g_str = str(loan_dict["gender"]).lower()
+        loan_dict["gender"] = "male" if g_str in ["male", "nam", "m"] else "female"
+
+    if "marital_status" in loan_dict and loan_dict["marital_status"]:
+        m_str = str(loan_dict["marital_status"]).lower()
+        if m_str in ["single", "độc thân", "doc_than"]:
+            loan_dict["marital_status"] = "single"
+        elif m_str in ["married", "kết hôn", "da_ket_hon"]:
+            loan_dict["marital_status"] = "married"
+
+    if "loan_purpose" in loan_dict and loan_dict["loan_purpose"]:
+        p_str = str(loan_dict["loan_purpose"]).lower()
+        if "nhà" in p_str or "house" in p_str:
+            loan_dict["loan_purpose"] = "buy_house"
+        elif "xe" in p_str or "car" in p_str:
+            loan_dict["loan_purpose"] = "buy_car"
+
+    result = inference_engine.analyze(normalize_payload(hh_dict, loan_dict))
     analysis = result.to_dict().get("analysis") or {}
     ml02 = analysis.get("ml02") or {}
 
