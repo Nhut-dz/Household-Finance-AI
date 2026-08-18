@@ -63,15 +63,14 @@ arrator.py
 
 - **Vị trí sửa đổi**:
   - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\llm\client.py (Hàm _template_answer)
-  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py (Bảng status_map & 
-ule_names)
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py (Bảng status_map & ule_names)
 - **Nội dung cập nhật**:
-  - Ánh xạ toàn bộ mã kỹ thuật khô cứng (CRITICAL, DEFICIT, REJECTED, RB01, RB02, RB05) sang cụm từ tiếng Việt tự nhiên:
-    - CRITICAL ➔ **"Cảnh báo khẩn cấp"**
-    - DEFICIT ➔ **"Bội chi / Thâm hụt"**
-    - REJECTED ➔ **"Chưa nên vay thêm"**
-    - POSITIVE ➔ **"Dồi dào thặng dư"**
-    - GOOD ➔ **"Tốt & An toàn"**
-    - RB01 ➔ **"Dòng tiền hàng tháng"**
-    - RB02 ➔ **"Sức khỏe tài chính & Đệm dự phòng"**
-  - Đồng bộ 100% với 18 Task trong Module F05 của bảng Google Sheet OKR-AI-Acdemi-HE-2026.
+  - Ánh xạ toàn bộ mã kỹ thuật khô cứng (CRITICAL, DEFICIT, REJECTED, RB01, RB02, RB05) sang cụm từ tiếng Việt tự nhiên.
+
+---
+
+### 📌 [2026-08-18 17:08:00] - Nâng cấp Tầng Rendering Giao diện Frontend (ChatbotPage.tsx) cho Định dạng Markdown
+
+- **Vị trí sửa đổi**: D:\CS116\Household-Finance-AI\Front-end\src\pages\ChatbotPage.tsx
+- **Nguyên nhân**: Trước đây giao diện Frontend dùng thẻ <p className="whitespace-pre-line"> thô nên các ký tự định dạng Markdown như **200,000,000 VNĐ** bị hiển thị nguyên văn hai dấu sao **, làm văn bản bị xấu và khó đọc.
+- **Nội dung cập nhật**: Xây dựng component FormattedText chuyển đổi tự động các cú pháp Markdown **chữ in đậm**, _chữ in nghiêng_ thành các thẻ HTML <strong> chuẩn đẹp, đồng thời thêm dấu chấm đầu dòng màu tím cho danh sách gạch đầu dòng -.
