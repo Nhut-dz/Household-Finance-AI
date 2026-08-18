@@ -1,4 +1,4 @@
-"""Tầng api — FastAPI endpoints.
+﻿"""Tầng api — FastAPI endpoints.
 
     GET  /health    kiểm tra service sống, kèm trạng thái model ML01
     POST /advise    tư vấn — định tuyến theo `intent_code` (F02 + F03 + F04)
