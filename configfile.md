@@ -81,7 +81,12 @@ arrator.py
 
 ---
 
-### 📌 [2026-08-18 17:45:00] - Nâng cấp Hộp Giải thích Kỹ thuật trực tiếp trong Khung xổ xuống của Thẻ ML01 (PredictionCard.tsx)
+### 📌 [2026-08-18 18:06:00] - Khôi phục Nguyên trạng Cấu trúc Văn bản & Template của ML02 (explain_ml02) & Bảo toàn Logic
 
-- **Vị trí sửa đổi**: D:\CS116\Household-Finance-AI\Front-end\src\components\PredictionCard.tsx
-- **Nội dung cập nhật**: Chèn hộp thông tin xanh nổi bật ngay bên trong khung xổ xuống *"Chi tiết kỹ thuật · độ tin cậy %"*, ghi rõ cơ chế tính toán dựa trên 17 đặc trưng tài chính đầu vào (bao gồm Nhà ở, Đất đai, Phương tiện Xe...).
+- **Vị trí rà soát**:
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\llm\narrator.py (Hàm explain_ml02)
+  - D:\CS116\Household-Finance-AI\ML_Training\src\hfml\api\main.py (Hàm _advise_loan_risk)
+- **Nội dung thực hiện**:
+  1. Giữ nguyên 100% cấu trúc văn bản gốc của ML02 trong 
+arrator.py (explain_ml02), bao gồm tiêu đề ⚖️ **Chẩn đoán rủi ro vay vốn: {label_vi}**, câu xác suất % và 3 dòng tổng quan luật RB01, RB02, RB05 cùng disclaimer chuẩn của dự án.
+  2. Bảo toàn phần logic chuẩn hóa dữ liệu đầu vào (hh_dict["assets"], loan_dict["occupation"], loan_dict["education_level"]) để mô hình ml02_xgboost_reduced_vfinal nhận dữ liệu hợp lệ và chạy mượt mà mà không làm thay đổi bất kỳ mẫu văn bản ML02 nào.
