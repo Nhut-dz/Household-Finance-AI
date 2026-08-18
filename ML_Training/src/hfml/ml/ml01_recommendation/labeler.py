@@ -156,7 +156,7 @@ def label_frame(
     t = thresholds
 
     conditions = [
-        (ind["savings_rate"] < 0) | (ind["savings_months"] < t.emergency_savings_months),
+        (ind["savings_rate"] < 0) | ((ind["savings_months"] < t.emergency_savings_months) & (ind["savings_rate"] < t.buffer_savings_rate)),
         ind["dti"] >= t.debt_focus_dti,
         (ind["savings_months"] < t.buffer_savings_months)
         | (ind["savings_rate"] < t.buffer_savings_rate),
@@ -351,3 +351,4 @@ ZERO_WHEN_ABSENT: Final[tuple[str, ...]] = (
     "total_current_debt",
     "monthly_debt_payment",
 )
+
