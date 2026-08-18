@@ -568,12 +568,19 @@ def advise(req: AdviseRequest) -> AdviseResponse:
     heading = (f"💡 **{INTENT_LABELS[intent]}**:" if req.intent_code
                else f"💡 **Trả lời cho câu hỏi: '{question}'**:")
 
-    answer = (
-        f"Chào {rep_name}, hệ thống AI tư vấn tài chính đã phân tích hồ sơ của bạn.\n\n"
-        f"{rule_summary}\n\n"
-        f"{heading}\n"
-        f"{advice_detail}"
-    )
+    if req.intent_code and intent not in (IntentCode.FINANCIAL_HEALTH_DIAGNOSIS, IntentCode.GENERAL):
+        answer = (
+            f"Chào {rep_name}, hệ thống AI tư vấn tài chính xin gửi bạn thông tin chi tiết:\n\n"
+            f"{heading}\n"
+            f"{advice_detail}"
+        )
+    else:
+        answer = (
+            f"Chào {rep_name}, hệ thống AI tư vấn tài chính đã phân tích hồ sơ của bạn.\n\n"
+            f"{rule_summary}\n\n"
+            f"{heading}\n"
+            f"{advice_detail}"
+        )
 
     suggested = [
         "Tôi muốn mua nhà giá 3 tỷ thì vay được bao nhiêu?",
