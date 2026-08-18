@@ -1,0 +1,39 @@
+{
+  "task": "ML02 task 12 — So sánh model",
+  "evaluated_on": "validation",
+  "test_set_touched": false,
+  "selection_metric": "pr_auc",
+  "cross_validation": false,
+  "uncertainty_method": "bootstrap 1000 lần trên tập validation",
+  "uncertainty_note": "Thay cho pr_auc_std mà việc bỏ K-Fold lấy đi. KHÔNG tương đương: bootstrap đo dao động do mẫu validation, CV đo thêm dao động do mẫu train.",
+  "leaders": [
+    {
+      "algo": "xgboost",
+      "feature_set": "full",
+      "pr_auc": 0.2500605812740654,
+      "pr_auc_lift": 3.097353499578092,
+      "roc_auc": 0.7619879059030363,
+      "f1_positive": 0.2826232298061144,
+      "recall_positive": 0.624328678839957,
+      "precision_positive": 0.18265378270091917,
+      "brier": 0.1725412325877818,
+      "accuracy": 0.7441194961736076,
+      "rank": 1
+    },
+    {
+      "algo": "xgboost",
+      "feature_set": "reduced",
+      "pr_auc": 0.17076674469038797,
+      "pr_auc_lift": 2.1151873341389704,
+      "roc_auc": 0.6906888111320377,
+      "f1_positive": 0.23090812533191715,
+      "recall_positive": 0.583780880773362,
+      "precision_positive": 0.1439163246392162,
+      "brier": 0.20250158142195893,
+      "accuracy": 0.6860407136817915,
+      "rank": 1
+    }
+  ],
+  "final_selection_done_here": false,
+  "final_selection_note": "Chốt model + kiểm trên test là task 14; export là task 15. Model dẫn đầu PR-AUC chưa chắc là model được chọn — còn hiệu chuẩn, mức học thuộc và khả năng triển khai."
+}

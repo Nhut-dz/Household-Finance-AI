@@ -1,0 +1,13 @@
+feature,description,formula,in_reduced
+credit_term_implied,Số kỳ trả ngụ ý của khoản vay,AMT_CREDIT / AMT_ANNUITY,True
+bureau_loan_count,Số khoản vay từng có ở trung tâm tín dụng,COUNT(bureau),True
+bureau_active_loan_count,Số khoản vay còn hiệu lực,COUNT(CREDIT_ACTIVE = 'Active'),True
+bureau_overdue_loan_count,Số khoản đang quá hạn,COUNT(CREDIT_DAY_OVERDUE > 0),True
+bureau_has_overdue,Có khoản vay quá hạn hay không,MAX(CREDIT_DAY_OVERDUE) > 0,True
+bureau_overdue_loan_share,Tỉ lệ khoản vay đang quá hạn trên tổng số khoản,overdue_count / loan_count,True
+bureau_debt_income_ratio,Dư nợ ở trung tâm tín dụng trên thu nhập năm,SUM(AMT_CREDIT_SUM_DEBT) / AMT_INCOME_TOTAL,True
+bureau_overdue_income_ratio,Nợ quá hạn trên thu nhập năm,SUM(AMT_CREDIT_SUM_OVERDUE) / AMT_INCOME_TOTAL,True
+bureau_credit_income_ratio,Tổng hạn mức tín dụng từng được cấp trên thu nhập năm,SUM(AMT_CREDIT_SUM) / AMT_INCOME_TOTAL,True
+bureau_history_years,Số năm có quan hệ tín dụng,-MIN(DAYS_CREDIT) / 365.25,False
+bureau_no_record,Không có bản ghi nào ở trung tâm tín dụng,bureau join rỗng,True
+credit_goods_markup,Mức đội giá của khoản vay so với giá hàng,AMT_CREDIT / AMT_GOODS_PRICE,False

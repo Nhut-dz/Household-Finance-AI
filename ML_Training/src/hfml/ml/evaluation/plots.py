@@ -19,7 +19,7 @@ số đếm thì hai lớp lớn lúc nào cũng đậm hơn bất kể model đ
 Macro-F1 của bốn model nằm trong dải 0,84–0,92; cột thì bắt buộc gốc 0 nên
 mọi khác biệt bị nén thành vô hình, mà cắt trục gốc của cột là bóp méo. Chấm
 không mã hoá độ lớn bằng chiều dài nên được phép dùng dải trục hẹp, và đoạn
-nối chính là `gap` CV → test mà task 12 đo.
+nối chính là `gap` validation → test mà task 12 đo.
 
 **Feature importance** — cột ngang, gốc 0 (importance là độ lớn, gốc 0 có
 nghĩa). Ba model cạnh nhau thay vì gộp trung bình: chỗ chúng BẤT ĐỒNG mới là
@@ -198,28 +198,28 @@ def plot_confusion_matrix(runs_dir=None, out=None, algos=None):
 # ----------------------------------------------------- so sánh model
 
 def plot_model_comparison(runs_dir=None, out=None):
-    """CV → test macro-F1 của 4 model, dạng dumbbell (task 12).
+    """Validation → test macro-F1 của 4 model, dạng dumbbell (task 12).
 
     Đoạn nối giữa hai chấm chính là `gap`. Trục x cắt hẹp quanh vùng dữ liệu —
     hợp lệ vì chấm không mã hoá độ lớn bằng chiều dài; cột thì không được
     phép làm vậy.
     """
     runs_dir, path = _resolve(runs_dir, "model_comparison.csv")
-    data = pd.read_csv(path).sort_values("cv_macro_f1").reset_index(drop=True)
+    data = pd.read_csv(path).sort_values("validation_macro_f1").reset_index(drop=True)
 
     fig, ax = _figure(figsize=(9, 4.2), dpi=DPI)
     y = np.arange(len(data))
 
     for position, row in zip(y, data.itertuples()):
-        ax.plot([row.cv_macro_f1, row.test_macro_f1], [position, position],
+        ax.plot([row.validation_macro_f1, row.test_macro_f1], [position, position],
                 color=AXIS, linewidth=2, zorder=2, solid_capstyle="round")
-    ax.scatter(data["cv_macro_f1"], y, s=90, color=SERIES[0], zorder=3,
-               label="CV trên train (chọn model)")
+    ax.scatter(data["validation_macro_f1"], y, s=90, color=SERIES[0], zorder=3,
+               label="Validation (chọn model)")
     ax.scatter(data["test_macro_f1"], y, s=90, color=SERIES[1], zorder=3,
                label="Test (báo cáo)")
 
     for position, row in zip(y, data.itertuples()):
-        ax.annotate(f"{row.cv_macro_f1:.4f}", (row.cv_macro_f1, position),
+        ax.annotate(f"{row.validation_macro_f1:.4f}", (row.validation_macro_f1, position),
                     textcoords="offset points", xytext=(0, 11), ha="center",
                     fontsize=8, color=INK_SECONDARY)
         ax.annotate(f"{row.test_macro_f1:.4f}", (row.test_macro_f1, position),
@@ -234,10 +234,10 @@ def plot_model_comparison(runs_dir=None, out=None):
     ax.yaxis.grid(False)
     ax.set_xlabel("macro-F1", color=INK_SECONDARY, fontsize=10)
     # numpy 2 bỏ phương thức `ndarray.ptp()`, chỉ còn hàm `np.ptp()`.
-    span = float(np.ptp(data[["cv_macro_f1", "test_macro_f1"]].to_numpy()))
+    span = float(np.ptp(data[["validation_macro_f1", "test_macro_f1"]].to_numpy()))
     ax.set_xlim(float(data["test_macro_f1"].min()) - span * 0.18,
-                float(data["cv_macro_f1"].max()) + span * 0.18)
-    ax.set_title("ML01 — macro-F1: CV trên train so với tập test",
+                float(data["validation_macro_f1"].max()) + span * 0.18)
+    ax.set_title("ML01 — macro-F1: tập validation so với tập test",
                  color=INK, fontsize=13, pad=14, loc="left")
     legend = ax.legend(frameon=False, loc="lower right", fontsize=9)
     for text in legend.get_texts():
@@ -318,17 +318,19 @@ def plot_feature_importance(runs_dir=None, out=None, top_n: int = 10):
 #: Cột của bảng: (nhãn hiển thị, mép phải tính theo tỉ lệ chiều ngang).
 #: Số căn phải nên toạ độ là mép PHẢI; riêng cột đầu căn trái, xử lý riêng.
 _TABLE_COLUMNS: Final[tuple[tuple[str, float], ...]] = (
-    # `n CV` đứng ngay sau tên thuật toán vì nó quyết định mấy cột sau có so
+    # `n val` đứng ngay sau tên thuật toán vì nó quyết định mấy cột sau có so
     # được với nhau không: `results.csv` giữ dòng MỚI NHẤT của từng split, nên
-    # train lại một model với `--rows` khác sẽ ghép CV của cỡ này với test của
-    # cỡ kia, và `chênh CV→test` thành con số vô nghĩa. Hiện n ra thì chỗ lệch
-    # tự lộ; giấu đi thì người đọc tin vào một phép trừ sai.
-    ("n CV", 0.200),
-    ("macro-F1 CV", 0.330),
-    ("sd fold", 0.400),
-    ("macro-F1 test", 0.520),
-    ("accuracy test", 0.640),
-    ("chênh CV→test", 0.768),
+    # train lại một model với `--rows` khác sẽ ghép validation của cỡ này với
+    # test của cỡ kia, và `chênh val→test` thành con số vô nghĩa. Hiện n ra thì
+    # chỗ lệch tự lộ; giấu đi thì người đọc tin vào một phép trừ sai.
+    #
+    # Không còn cột `sd fold`: ML01 bỏ K-Fold nên mỗi chỉ số là một điểm đo,
+    # không phải trung bình có độ lệch.
+    ("n val", 0.190),
+    ("macro-F1 val", 0.330),
+    ("macro-F1 test", 0.480),
+    ("accuracy test", 0.620),
+    ("chênh val→test", 0.762),
     ("fit (s)", 0.845),
 )
 
@@ -375,11 +377,11 @@ def plot_results_table(runs_dir=None, out=None):
     runs_dir, path = _resolve(runs_dir, "results.csv")
     results = pd.read_csv(path)
 
-    cv = _latest_by_algo(results, "cv_train")
+    validation = _latest_by_algo(results, "validation")
     test = _latest_by_algo(results, "test")
-    algos = list(dict.fromkeys(list(cv.index) + list(test.index)))
+    algos = list(dict.fromkeys(list(validation.index) + list(test.index)))
     if not algos:
-        raise ValueError(f"{path} không có dòng nào ở split cv_train hoặc test.")
+        raise ValueError(f"{path} không có dòng nào ở split validation hoặc test.")
 
     def _get(frame, algo, column):
         if algo not in frame.index or column not in frame.columns:
@@ -387,18 +389,17 @@ def plot_results_table(runs_dir=None, out=None):
         return frame.loc[algo, column]
 
     table = pd.DataFrame({
-        "cv_n": [_get(cv, a, "n_rows") for a in algos],
-        "cv_f1": [_get(cv, a, "macro_f1") for a in algos],
-        "cv_sd": [_get(cv, a, "macro_f1_std") for a in algos],
+        "val_n": [_get(validation, a, "n_rows") for a in algos],
+        "val_f1": [_get(validation, a, "macro_f1") for a in algos],
         "test_f1": [_get(test, a, "macro_f1") for a in algos],
         "test_acc": [_get(test, a, "accuracy") for a in algos],
-        "fit": [_get(cv, a, "fit_seconds") for a in algos],
+        "fit": [_get(validation, a, "fit_seconds") for a in algos],
     }, index=algos)
-    table["gap"] = table["cv_f1"] - table["test_f1"]
+    table["gap"] = table["val_f1"] - table["test_f1"]
 
-    # Xếp theo test nếu đã chấm test, ngược lại theo CV. Trộn hai thang vào
-    # một cột sắp xếp thì thứ hạng không còn nghĩa gì.
-    rank_column = "test_f1" if table["test_f1"].notna().any() else "cv_f1"
+    # Xếp theo test nếu đã chấm test, ngược lại theo validation. Trộn hai thang
+    # vào một cột sắp xếp thì thứ hạng không còn nghĩa gì.
+    rank_column = "test_f1" if table["test_f1"].notna().any() else "val_f1"
     table = table.sort_values(rank_column, ascending=False)
     best = table[rank_column].idxmax()
 
@@ -425,8 +426,8 @@ def plot_results_table(runs_dir=None, out=None):
         ax.text(0.005, y, algo, va="center", ha="left", fontsize=10,
                 color=INK, fontweight=weight)
 
-        n_cv = ("—" if pd.isna(row["cv_n"]) else f"{int(row['cv_n']):,}")
-        values = (n_cv, _cell(row["cv_f1"]), _cell(row["cv_sd"]),
+        n_val = ("—" if pd.isna(row["val_n"]) else f"{int(row['val_n']):,}")
+        values = (n_val, _cell(row["val_f1"]),
                   _cell(row["test_f1"]), _cell(row["test_acc"]),
                   _cell(row["gap"], plus=True), _cell(row["fit"], digits=1))
         for (_, x), text in zip(_TABLE_COLUMNS, values):

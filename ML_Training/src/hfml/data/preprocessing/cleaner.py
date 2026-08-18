@@ -242,7 +242,16 @@ class MissingNormalizer(BaseEstimator, TransformerMixin):
         names = list(input_features if input_features is not None
                      else getattr(self, "feature_names_in_", []))
         if self.add_flags:
-            names += [f.name for f in self.flags if f.source in names]
+            # `f.name not in names` là điều kiện BẮT BUỘC, không phải phòng xa:
+            # `add_missing_flags` GHI ĐÈ cột cờ đã có thay vì thêm cột mới, nên
+            # khi đầu vào đã mang sẵn cờ thì số cột không tăng. Thiếu điều kiện
+            # này, hàm khai thừa đúng bằng số cờ đã có và sklearn ném
+            # "Length mismatch" lúc gán tên cột.
+            #
+            # Xảy ra thật ở ML02: task 2 đã sinh 6 cờ trước khi dữ liệu vào
+            # Pipeline, và bộ FULL báo 162 tên cho 156 cột.
+            names += [f.name for f in self.flags
+                      if f.source in names and f.name not in names]
         return np.asarray(names, dtype=object)
 
 

@@ -6,9 +6,9 @@
 
 Script chỉ ĐIỀU PHỐI: nó gọi lần lượt bốn hàm train đã có trong
 `hfml.ml.ml01_recommendation.train`, không tự cài đặt lại thuật toán nào.
-Mỗi hàm tự lo phần việc của nó — tách 80/20, CV 5-fold trên tập train, fit
-model cuối trên toàn bộ tập train — nên chạy qua đây hay gọi từng hàm riêng
-đều cho cùng một kết quả.
+Mỗi hàm tự lo phần việc của nó — tách 70/15/15, fit trên tập train, chấm trên
+tập validation — nên chạy qua đây hay gọi từng hàm riêng đều cho cùng một kết
+quả. KHÔNG dùng K-Fold Cross-Validation.
 
 Phạm vi dừng ở TRAIN. Không đánh giá trên test, không so sánh, không feature
 importance, không chọn model, không export — mỗi việc đó có đường chạy riêng.
@@ -69,8 +69,6 @@ def main() -> int:
                         help="số hộ sinh ra (mặc định: theo PopulationParams)")
     parser.add_argument("--seed", type=int, default=None,
                         help="ghi đè random_seed của config")
-    parser.add_argument("--n-splits", type=int, default=None,
-                        help="số fold CV (mặc định: theo config)")
     parser.add_argument("--no-save", action="store_true",
                         help="không ghi artifact/kết quả ra src/training/runs/")
     args = parser.parse_args()
@@ -81,19 +79,18 @@ def main() -> int:
     for algo, trainer in TRAINERS:
         log.info("── Train %s ──", algo)
         result = _call(trainer, params=params, seed=args.seed,
-                       n_splits=args.n_splits, save=not args.no_save)
-        metrics = result["cv_metrics"]
+                       save=not args.no_save)
+        metrics = result["validation_metrics"]
         rows.append({
             "thuật toán": algo,
-            "CV accuracy": metrics["accuracy"],
-            "CV macro-F1": metrics["macro_f1"],
-            "sd giữa fold": metrics["macro_f1_std"],
+            "validation accuracy": metrics["accuracy"],
+            "validation macro-F1": metrics["macro_f1"],
             "artifact": (result["artifact"].name if "artifact" in result
                          else "— không ghi —"),
         })
 
     table = pd.DataFrame(rows)
-    print(f"\n=== ML01 · CV trên tập train ({len(table)} thuật toán) ===")
+    print(f"\n=== ML01 · chấm trên tập validation ({len(table)} thuật toán) ===")
     print(table.to_string(index=False))
 
     # Nêu ra ngay chỗ nào không sinh artifact. Im lặng ở đây thì mãi sau mới
@@ -104,7 +101,7 @@ def main() -> int:
               "hàm train tương ứng chưa ghi output.")
 
     if not args.no_save:
-        report = build_ml01_report(params, seed=args.seed, n_splits=args.n_splits)
+        report = build_ml01_report(params, seed=args.seed)
         print("\n=== Chỉ số trên tập test ===")
         print(report["test_summary"].to_string(index=False))
         print("\n=== Hình đã ghi ===")

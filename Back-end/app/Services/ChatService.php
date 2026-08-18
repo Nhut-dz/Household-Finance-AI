@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\IntentCodeEnum;
 use App\Models\AiResponse;
 use App\Models\Consultation;
 use App\Models\Conversation;
@@ -103,12 +104,17 @@ class ChatService
      * đúng tình huống nghiệp vụ này cấm, và nhận id từ ngoài vào thì cái cấm đó
      * chỉ còn là lời hứa.
      *
+     * `$intent` chỉ có khi người dùng bấm một chip gợi ý. Nó KHÔNG được lưu
+     * vào tblconsultations: bảng đó ghi lại cuộc hội thoại như người dùng
+     * thấy, mà thứ họ thấy là câu hỏi. Mã ý định là chi tiết định tuyến của
+     * một lần gọi, lưu lại sẽ thành một trường luôn null với mọi câu tự gõ.
+     *
      * @return array{conversation_id: int, user_message: array<string, mixed>, ai_message: array<string, mixed>}
      */
-    public function send(Household $household, string $content): array
+    public function send(Household $household, string $content, ?IntentCodeEnum $intent = null): array
     {
         $conversation = $this->conversations->currentOrNew($household);
-        $answer = $this->advisor->ask($household, $content);
+        $answer = $this->advisor->ask($household, $content, $intent);
 
         $consultation = DB::transaction(function () use ($household, $conversation, $content, $answer) {
             $consultation = $household->consultations()->create([
@@ -129,7 +135,13 @@ class ChatService
         return [
             'conversation_id' => $conversation->id,
             'user_message' => $this->userMessage($consultation),
-            'ai_message' => $this->aiMessage($consultation, $consultation->aiResponse),
+            'ai_message' => [
+                ...$this->aiMessage($consultation, $consultation->aiResponse),
+                // Hai trường của LƯỢT GỌI này, không thuộc bản ghi trong DB nên
+                // chỉ có ở response của lần gửi, không có khi tải lại lịch sử.
+                'intent_code' => $answer['intent_code'],
+                'requires_loan_application' => $answer['requires_loan_application'],
+            ],
         ];
     }
 

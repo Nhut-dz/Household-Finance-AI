@@ -1,0 +1,4 @@
+name,description,rows_before,rows_after,cols_before,cols_after,detail
+drop_future_information,Bỏ bản ghi có cột thời gian > 0,1716428,1716411,17,17,"17 dòng có thông tin cập nhật SAU ngày nộp đơn — thứ mà lúc chạy thật hệ thống không thể biết. `DAYS_CREDIT_ENDDATE` được miễn: ngày kết thúc dự kiến của khoản vay còn hiệu lực đã biết ngay lúc ký, dương là bình thường."
+normalize_dtypes,Cột chuỗi → category,1716411,1716411,17,17,
+keep_content_duplicates,Giữ nguyên bản ghi trùng nội dung,1716411,1716411,17,17,"2059 dòng trùng ở mọi cột trừ SK_ID_BUREAU. Giữ lại: chúng là khoản vay riêng biệt, bỏ đi sẽ đếm thiếu số khoản vay trước đây."

@@ -90,6 +90,74 @@ def classification_metrics(
     return out
 
 
+#: Sàn thật của PR-AUC là TỈ LỆ DƯƠNG, không phải 0,5.
+#:
+#: Đây là chỗ đọc nhầm nhiều nhất khi báo cáo bài toán mất cân bằng. ROC-AUC
+#: có sàn 0,5 vì đoán bừa cho ra đúng 0,5. PR-AUC thì không: một model đoán
+#: bừa cho PR-AUC ≈ tỉ lệ dương, tức **0,0807** ở ML02. Nên "PR-AUC = 0,15"
+#: không phải "kém hơn ngẫu nhiên", nó là **gần gấp đôi** mức ngẫu nhiên.
+#: `pr_auc_lift` dưới đây tính sẵn tỉ số đó để khỏi ai phải nhẩm.
+PR_AUC_FLOOR_IS_BASE_RATE: Final[bool] = True
+
+
+def binary_metrics(
+    y_true,
+    y_proba_positive,
+    threshold: float = 0.5,
+) -> dict[str, float]:
+    """Bộ chỉ số cho bài toán nhị phân mất cân bằng (ML02).
+
+    Khác `classification_metrics` ở chỗ báo cáo **riêng lớp dương** thay vì
+    trung bình macro. Với 8,07% dương, macro-recall gộp cả lớp âm vào nên một
+    model bỏ rơi hoàn toàn lớp dương vẫn có macro-recall ~0,5 — nghe không tệ,
+    trong khi nó không bắt được ca vỡ nợ nào.
+
+    `threshold` mặc định 0,5 chỉ để tính các chỉ số cần NHÃN cứng (F1, recall,
+    confusion matrix). Nó **không phải** ngưỡng nghiệp vụ `LOW_RISK/HIGH_RISK`
+    — ngưỡng đó chốt ở task 14 sau khi hiệu chuẩn, và với tỉ lệ nền 8% thì 0,5
+    chắc chắn không phải giá trị đúng. Hai chỉ số quan trọng nhất (`pr_auc`,
+    `roc_auc`) không phụ thuộc ngưỡng nên không bị ảnh hưởng.
+    """
+    truth = np.asarray(y_true).astype(int)
+    proba = np.asarray(y_proba_positive, dtype=float)
+    predicted = (proba >= threshold).astype(int)
+
+    base_rate = float(truth.mean())
+    pr_auc = float(average_precision_score(truth, proba))
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        truth, predicted, labels=[1], average="binary", zero_division=0)
+
+    return {
+        # Chỉ số CHỌN MODEL của ML02.
+        "pr_auc": pr_auc,
+        # PR-AUC hơn mức đoán bừa bao nhiêu lần. 1,0 = không hơn gì.
+        "pr_auc_lift": pr_auc / base_rate if base_rate else float("nan"),
+        "roc_auc": float(roc_auc_score(truth, proba)),
+        # Ba chỉ số của RIÊNG lớp dương — thứ macro làm mờ mất.
+        "precision_positive": float(precision),
+        "recall_positive": float(recall),
+        "f1_positive": float(f1),
+        # Có trong bảng nhưng KHÔNG được cầm lái: đoán toàn 0 đã đạt 91,93%.
+        "accuracy": float(accuracy_score(truth, predicted)),
+        "balanced_accuracy": float(balanced_accuracy_score(truth, predicted)),
+        # Hiệu chuẩn xác suất — càng nhỏ càng tốt (PLAN.md §7.4).
+        "brier": float(brier_score_loss(truth, proba)),
+        "base_rate": base_rate,
+        "threshold": float(threshold),
+    }
+
+
+def binary_confusion(y_true, y_proba_positive, threshold: float = 0.5) -> pd.DataFrame:
+    """Confusion matrix nhị phân có tên hàng/cột đọc được bằng tiếng Việt."""
+    truth = np.asarray(y_true).astype(int)
+    predicted = (np.asarray(y_proba_positive, dtype=float) >= threshold).astype(int)
+    matrix = confusion_matrix(truth, predicted, labels=[0, 1])
+    names = ["0 · trả nợ bình thường", "1 · khó khăn trả nợ"]
+    return pd.DataFrame(matrix,
+                        index=pd.Index(names, name="thật"),
+                        columns=pd.Index(names, name="dự đoán"))
+
+
 def per_class_table(y_true, y_pred, labels: list[str]) -> pd.DataFrame:
     """Precision / recall / F1 / support từng lớp.
 

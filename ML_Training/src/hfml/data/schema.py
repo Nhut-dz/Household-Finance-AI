@@ -231,6 +231,127 @@ def loan_term_label(months: int) -> str:
     return f"{months} tháng"
 
 
+class GenderType(str, Enum):
+    """`tblloan_applications.gender` — ánh xạ `CODE_GENDER` của Home Credit.
+
+    Chỉ hai giá trị vì `CODE_GENDER` chỉ có F/M (4 dòng 'XNA' coi là missing).
+    Thêm lựa chọn thứ ba là tạo hạng mục không có mẫu huấn luyện nào.
+    """
+    MALE = "male"
+    FEMALE = "female"
+
+
+class MaritalStatusType(str, Enum):
+    """`NAME_FAMILY_STATUS` — giữ đúng 5 giá trị của Home Credit."""
+    SINGLE = "single"                    # Single / not married
+    MARRIED = "married"                  # Married
+    CIVIL_MARRIAGE = "civil_marriage"    # Civil marriage
+    SEPARATED = "separated"              # Separated
+    WIDOW = "widow"                      # Widow
+
+
+class EducationLevelType(str, Enum):
+    """`NAME_EDUCATION_TYPE` — biến THỨ BẬC, thứ tự khai báo có ý nghĩa."""
+    LOWER_SECONDARY = "lower_secondary"
+    SECONDARY = "secondary"
+    INCOMPLETE_HIGHER = "incomplete_higher"
+    HIGHER = "higher"
+    ACADEMIC_DEGREE = "academic_degree"
+
+
+class LoanPurposeType(str, Enum):
+    """Mục đích vay. Phục vụ RB05 và tầng `llm`, KHÔNG phải feature ML02 mạnh —
+    `NAME_CASH_LOAN_PURPOSE` của Home Credit có 95,8% dòng là XAP/XNA."""
+    BUY_HOUSE = "buy_house"
+    BUY_LAND = "buy_land"
+    BUY_CAR = "buy_car"
+    HOME_REPAIR = "home_repair"
+    BUSINESS = "business"
+    EDUCATION = "education"
+    MEDICAL = "medical"
+    CONSUMER = "consumer"
+    DEBT_CONSOLIDATION = "debt_consolidation"
+    OTHER = "other"
+
+
+class LoanApplication(BaseModel):
+    """Dữ liệu màn "Thông tin khoản vay" — đầu vào của ML02.
+
+    Giữ khớp bảng `tblloan_applications` và `StoreLoanApplicationRequest` của
+    backend. Ba nơi lệch nhau là lỗi im lặng: form vẫn gửi được, ML vẫn trả
+    xác suất, chỉ có điều một trường rơi vào nhánh "giá trị lạ" và mất tín hiệu.
+
+    Bốn trường cuối là **mục C — lịch sử tín dụng**, tương ứng phần tổng hợp
+    từ `bureau.csv` mà task 13 đo được là nhóm feature mạnh thứ hai của model
+    triển khai.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    # -- A. Người vay ------------------------------------------------------
+    borrower_age: int = Field(..., ge=18, le=100, title="Tuổi")
+    gender: GenderType = Field(..., title="Giới tính")
+    marital_status: MaritalStatusType = Field(..., title="Tình trạng hôn nhân")
+    children_count: int = Field(..., ge=0, le=20, title="Số con")
+    education_level: EducationLevelType = Field(..., title="Trình độ học vấn")
+    occupation: OccupationType = Field(..., title="Nghề nghiệp")
+    employment_years: Decimal = Field(..., ge=0, le=60, title="Thời gian làm việc")
+
+    # -- B. Khoản vay ------------------------------------------------------
+    loan_amount: Money = Field(..., gt=0, title="Số tiền vay")
+    loan_term_months: int = Field(..., title="Thời hạn vay (tháng)")
+    monthly_payment: Money = Field(..., gt=0, title="Khoản trả hàng tháng")
+    asset_price: Money = Field(..., gt=0, title="Giá trị tài sản")
+    loan_purpose: LoanPurposeType = Field(..., title="Mục đích vay")
+
+    # -- C. Lịch sử tín dụng ------------------------------------------------
+    previous_loan_count: int = Field(0, ge=0, le=100, title="Số khoản vay trước đây")
+    late_payment_count: int = Field(0, ge=0, title="Số lần trả chậm")
+    has_overdue_loan: bool = Field(False, title="Có khoản vay quá hạn")
+    total_overdue_amount: Money = Field(Decimal(0), title="Tổng nợ quá hạn")
+
+    @model_validator(mode="after")
+    def _check_consistency(self) -> "LoanApplication":
+        """Bốn mâu thuẫn nội tại — chặn ở đây chứ không để chảy xuống model.
+
+        Model vẫn trả xác suất cho một hồ sơ mâu thuẫn, và con số đó vô nghĩa
+        mà không có gì báo. Cùng bốn luật với `StoreLoanApplicationRequest`.
+        """
+        max_years = self.borrower_age - MIN_WORKING_AGE
+        if float(self.employment_years) > max_years:
+            raise ValueError(
+                f"Thời gian làm việc {self.employment_years} năm vượt quá "
+                f"{max_years} năm có thể có với người {self.borrower_age} tuổi.")
+
+        if self.loan_term_months not in LOAN_TERM_CHOICES:
+            raise ValueError(
+                f"Kỳ hạn vay phải là một trong {LOAN_TERM_CHOICES}.")
+
+        minimum = self.loan_amount / self.loan_term_months
+        if self.monthly_payment < minimum:
+            raise ValueError(
+                f"Khoản trả hàng tháng phải từ {minimum:,.0f} VNĐ trở lên mới "
+                f"trả hết gốc trong {self.loan_term_months} tháng.")
+
+        if self.previous_loan_count == 0:
+            if self.late_payment_count > 0:
+                raise ValueError(
+                    "Chưa có khoản vay nào trước đây thì không thể có lần trả chậm.")
+            if self.has_overdue_loan:
+                raise ValueError(
+                    "Chưa có khoản vay nào trước đây thì không thể có khoản quá hạn.")
+
+        if not self.has_overdue_loan and self.total_overdue_amount > 0:
+            raise ValueError(
+                "Khai không có khoản quá hạn nhưng vẫn có số nợ quá hạn.")
+
+        return self
+
+
+#: Tuổi tối thiểu được tính là đã đi làm — dùng cho ràng buộc employment_years.
+MIN_WORKING_AGE: Final[int] = 15
+
+
 class DataQualityFlag(str, Enum):
     """Cảnh báo dữ liệu bất thường — KHÔNG chặn request (PLAN.md §4.2).
 

@@ -1,0 +1,7 @@
+code,n_violations,rate,drop_on_train,description
+nonpositive_income,0,0.0,True,AMT_INCOME_TOTAL ≤ 0 — không tính được mọi tỉ lệ có thu nhập ở mẫu số
+negative_amount,0,0.0,True,Cột AMT_* có giá trị âm
+days_positive,0,0.0,True,Cột DAYS_* dương — phải là số ngày trước khi nộp đơn (đã trừ sentinel)
+employed_before_birth,0,0.0,True,DAYS_EMPLOYED < DAYS_BIRTH — đi làm trước khi sinh ra
+children_exceed_family,0,0.0,True,CNT_CHILDREN ≥ CNT_FAM_MEMBERS — số con không thể bằng cả hộ
+negative_count,0,0.0,True,Cột CNT_* âm — số con và số nhân khẩu không thể âm

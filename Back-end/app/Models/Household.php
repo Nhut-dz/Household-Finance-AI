@@ -85,6 +85,18 @@ class Household extends Model
     }
 
     /**
+     * Phương án vay đang xét — dữ liệu màn "Thông tin khoản vay", đầu vào của
+     * ML02. Null khi hộ chưa khai; đó là trạng thái bình thường, phần lớn hộ
+     * chỉ muốn xem sức khoẻ tài chính chứ không tính vay.
+     *
+     * Tối đa một bản ghi nhờ unique(household_id) ở DB.
+     */
+    public function loanApplication(): HasOne
+    {
+        return $this->hasOne(LoanApplication::class);
+    }
+
+    /**
      * Các lượt hỏi đáp với Chatbot, cũ nhất trước.
      *
      * Đây là TẤT CẢ lượt hỏi của hộ, xuyên mọi phiên. Muốn hội thoại đang diễn

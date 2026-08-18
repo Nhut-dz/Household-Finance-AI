@@ -28,23 +28,22 @@ def main() -> int:
                         help="số hộ sinh ra (mặc định: theo PopulationParams)")
     parser.add_argument("--seed", type=int, default=None,
                         help="ghi đè random_seed của config")
-    parser.add_argument("--n-splits", type=int, default=None,
-                        help="số fold CV (mặc định: theo config)")
     parser.add_argument("--no-save", action="store_true",
                         help="không ghi artifact/kết quả ra src/training/runs/")
     args = parser.parse_args()
 
     params = PopulationParams(n=args.rows) if args.rows else None
-    result = train_xgboost(params, seed=args.seed, n_splits=args.n_splits,
+    result = train_xgboost(params, seed=args.seed,
                            save=not args.no_save)
 
-    metrics = result["cv_metrics"]
+    metrics = result["validation_metrics"]
     rows = [
-        {"chỉ số": name, "giá trị": metrics[name], "sd giữa fold": metrics[f"{name}_std"]}
+        {"chỉ số": name, "giá trị": metrics[name]}
         for name in ("accuracy", "macro_f1", "balanced_accuracy", "weighted_f1")
     ]
-    print(f"\n=== XGBoost · CV {result['config']['n_splits']}-fold trên "
-          f"{result['config']['n_train_rows']:,} dòng train ===")
+    print(f"\n=== XGBoost · chấm trên tập validation "
+          f"({result['config']['n_validation_rows']:,} hộ) · "
+          f"fit trên {result['config']['n_train_rows']:,} hộ train ===")
     print(pd.DataFrame(rows).to_string(index=False))
 
     print("\n=== Cấu hình lần chạy ===")
@@ -55,7 +54,7 @@ def main() -> int:
         print(f"\nArtifact  → {result['artifact']}")
         print(f"Kết quả   → {result['results_csv']}")
 
-        report = build_ml01_report(params, seed=args.seed, n_splits=args.n_splits)
+        report = build_ml01_report(params, seed=args.seed)
         print("\n=== Hình đã ghi ===")
         for name, path in report["figures"].items():
             print(f"{name:<20} → {path}")
