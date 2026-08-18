@@ -78,3 +78,10 @@ arrator.py
   1. Tách biệt house ➔ **"Nhà ở"**, land ➔ **"Đất đai"**, car ➔ **"Phương tiện (Xe)"**. Kết quả hiển thị chính xác từng loại tài sản: "Tài sản: Nhà ở, Đất đai, Phương tiện (Xe)".
   2. Đưa thành phần đánh giá tài sản tích lũy trực tiếp vào khối phân tích tổng quan ML01 / Chẩn đoán sức khỏe tài chính.
   3. Nhúng component FormattedText vào ChatbotPage.tsx chuyển toàn bộ ký tự **chữ in đậm** thành thẻ HTML <strong> sắc nét và dấu gạch đầu dòng màu tím cho giao diện Frontend.
+
+---
+
+### 📌 [2026-08-18 17:40:00] - Minh bạch hóa Cơ chế Đánh giá Tài sản & 17 Đặc trưng trực tiếp trên Thẻ ML01 (PredictionCard.tsx)
+
+- **Vị trí sửa đổi**: D:\CS116\Household-Finance-AI\Front-end\src\components\PredictionCard.tsx
+- **Nội dung cập nhật**: Bổ sung khối giải thích minh bạch ngay trong thẻ PredictionCard.tsx, ghi chú rõ 17 đặc trưng tài chính đầu vào (bao gồm Nhà ở, Đất đai, Phương tiện Xe) được thuật toán XGBoost ML01 tính toán để xếp loại nhóm định hướng.
