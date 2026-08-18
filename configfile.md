@@ -81,7 +81,7 @@ arrator.py
 
 ---
 
-### 📌 [2026-08-18 17:40:00] - Minh bạch hóa Cơ chế Đánh giá Tài sản & 17 Đặc trưng trực tiếp trên Thẻ ML01 (PredictionCard.tsx)
+### 📌 [2026-08-18 17:45:00] - Nâng cấp Hộp Giải thích Kỹ thuật trực tiếp trong Khung xổ xuống của Thẻ ML01 (PredictionCard.tsx)
 
 - **Vị trí sửa đổi**: D:\CS116\Household-Finance-AI\Front-end\src\components\PredictionCard.tsx
-- **Nội dung cập nhật**: Bổ sung khối giải thích minh bạch ngay trong thẻ PredictionCard.tsx, ghi chú rõ 17 đặc trưng tài chính đầu vào (bao gồm Nhà ở, Đất đai, Phương tiện Xe) được thuật toán XGBoost ML01 tính toán để xếp loại nhóm định hướng.
+- **Nội dung cập nhật**: Chèn hộp thông tin xanh nổi bật ngay bên trong khung xổ xuống *"Chi tiết kỹ thuật · độ tin cậy %"*, ghi rõ cơ chế tính toán dựa trên 17 đặc trưng tài chính đầu vào (bao gồm Nhà ở, Đất đai, Phương tiện Xe...).
