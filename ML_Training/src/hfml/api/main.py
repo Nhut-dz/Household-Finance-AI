@@ -472,27 +472,38 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     log.info("advise: intent=%s (%s)", intent.value,
              "chip" if req.intent_code else "từ khoá")
+    status_map = {
+        "POSITIVE": "Dồi dào thặng dư",
+        "BALANCED": "Cân bằng thu chi",
+        "DEFICIT": "Bội chi / Thâm hụt",
+        "EXCELLENT": "Xuất sắc & Rất an toàn",
+        "GOOD": "Tốt & An toàn",
+        "WARNING": "Cần chú ý thêm",
+        "CRITICAL": "Cảnh báo khẩn cấp",
+        "ELIGIBLE": "Đủ năng lực vay",
+        "APPROVED": "Phù hợp vay",
+        "REJECTED": "Chưa nên vay thêm",
+    }
+    st_overall = status_map.get(str(overall_status), str(overall_status))
+    st_rb01 = status_map.get(str(rb01.get("status")), str(rb01.get("status")))
+    st_rb02 = status_map.get(str(rb02.get("status")), str(rb02.get("status")))
+    st_rb05 = status_map.get(str(rb05.get("status")), str(rb05.get("status")))
 
-    # Tóm tắt tầng rule, dùng lại cho cả câu trả lời thường lẫn phần diễn giải
-    # của ML01 — hai nơi nói khác nhau về cùng một hồ sơ là chuyện phải tránh.
     if net_cashflow < 0:
-        cashflow_line = f"Thâm hụt (bội chi) khoảng {abs(net_cashflow):,.0f} VNĐ/tháng ({rb01.get('status')})"
+        cashflow_line = f"Thâm hụt (bội chi) khoảng **{abs(net_cashflow):,.0f} VNĐ/tháng** ({st_rb01})"
     else:
-        cashflow_line = f"Dư thừa khoảng {net_cashflow:,.0f} VNĐ ({rb01.get('status')})"
+        cashflow_line = f"Dư thừa khoảng **{net_cashflow:,.0f} VNĐ/tháng** ({st_rb01})"
 
     elderly_str = " (Có phụng dưỡng người già ➔ Nâng đệm dự phòng lên 6 tháng)" if has_dependents else ""
 
     rule_summary = (
-        f"📌 **Đánh giá tổng quan ({overall_status})**:\n"
-        f"- Dòng tiền hàng tháng (RB01): {cashflow_line}.\n"
-        f"- Nợ, Tiết kiệm & Tài sản: Nợ {debt_desc} | Tiết kiệm {savings_desc} | Tài sản: {asset_desc}.\n"
-        f"- Sức khỏe tài chính (RB02): {rb02.get('status')} (Tỷ lệ DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng{elderly_str}, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
-        f"- Khả năng vay vốn (RB05): Trả nợ đề xuất thêm tối đa {max_add_payment:,.0f} VNĐ/tháng ({rb05.get('status')})."
+        f"📌 **Phân tích chỉ số tài chính tổng quan ({st_overall})**:\n"
+        f"- **Dòng tiền hàng tháng**: {cashflow_line}.\n"
+        f"- **Nợ & Tích lũy**: Nợ {debt_desc} | Tiết kiệm {savings_desc} | Tài sản: {asset_desc}.\n"
+        f"- **Đệm dự phòng & Trả nợ**: {st_rb02} (DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng{elderly_str}, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
+        f"- **Năng lực vay mới**: Trả nợ đề xuất thêm tối đa {max_add_payment:,.0f} VNĐ/tháng ({st_rb05})."
     )
 
-    # Hai nhánh ML trả về câu trả lời HOÀN CHỈNH và thoát sớm: chúng có cấu
-    # trúc riêng do tầng diễn đạt dựng, không phải một đoạn `advice_detail`
-    # ghép vào khung trả lời chung.
     if intent is IntentCode.FINANCIAL_HEALTH_DIAGNOSIS:
         return _advise_financial_health(req, rule_summary)
 
