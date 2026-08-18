@@ -81,6 +81,54 @@ const QUICK: {
 ]
 
 /** App logo used as the assistant's avatar. */
+function FormattedText({ content }: { content: string }) {
+  const parseInline = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|_.*?_)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+        return (
+          <strong key={idx} className="font-bold text-slate-900">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (
+        (part.startsWith("*") && part.endsWith("*") && part.length > 2) ||
+        (part.startsWith("_") && part.endsWith("_") && part.length > 2)
+      ) {
+        return (
+          <em key={idx} className="italic text-slate-500">
+            {part.slice(1, -1)}
+          </em>
+        );
+      }
+      return part;
+    });
+  };
+
+  const lines = content.split("\n");
+
+  return (
+    <div className="space-y-1 text-sm leading-relaxed text-slate-700">
+      {lines.map((line, lineIdx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={lineIdx} className="h-1" />;
+        }
+        if (trimmed.startsWith("- ")) {
+          return (
+            <div key={lineIdx} className="flex items-start gap-2 py-0.5 pl-1">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+              <div className="flex-1">{parseInline(trimmed.slice(2))}</div>
+            </div>
+          );
+        }
+        return <div key={lineIdx}>{parseInline(line)}</div>;
+      })}
+    </div>
+  );
+}
+
 function BotAvatar({ className = '' }: { className?: string }) {
   return (
     <img
@@ -277,9 +325,9 @@ export default function ChatbotPage({
                 <div key={m.id} className="flex gap-3">
                   <BotAvatar className="h-8 w-8" />
                   <div className="rounded-2xl rounded-tl-sm bg-slate-50 p-4">
-                    <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
-                      {m.content}
-                    </p>
+                    <FormattedText content={m.content} />
+
+
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
                         type="button"

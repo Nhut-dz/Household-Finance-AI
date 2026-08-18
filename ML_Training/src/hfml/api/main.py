@@ -432,21 +432,25 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     asset_label_list = []
     for a in assets:
-        if a in ["house", "land", "real_estate"]:
+        a_lower = str(a).lower()
+        if a_lower == "house":
+            asset_label_list.append("Nhà ở")
+        elif a_lower == "land":
+            asset_label_list.append("Đất đai")
+        elif a_lower in ["real_estate", "bất động sản"]:
             asset_label_list.append("Bất động sản")
-        elif a in ["car", "vehicle"]:
+        elif a_lower in ["car", "vehicle", "xe"]:
             asset_label_list.append("Phương tiện (Xe)")
-        elif a == "cash":
-            asset_label_list.append("Tiền mặt/Tiền gửi")
-        elif a == "gold":
-            asset_label_list.append("Vàng")
-        elif a == "insurance":
+        elif a_lower in ["cash", "savings"]:
+            asset_label_list.append("Tiền gửi / Tiền mặt")
+        elif a_lower == "gold":
+            asset_label_list.append("Vàng & Kim loại quý")
+        elif a_lower == "insurance":
             asset_label_list.append("Bảo hiểm")
-        elif a == "investment":
-            asset_label_list.append("Đầu tư")
+        elif a_lower in ["investment", "stock"]:
+            asset_label_list.append("Đầu tư / Cổ phiếu")
         else:
             asset_label_list.append(str(a).upper())
-
     asset_desc = ", ".join(list(dict.fromkeys(asset_label_list))) if asset_label_list else "Chưa có tài sản"
 
     # Trích xuất giá trị tài sản và kỳ hạn vay từ câu hỏi người dùng nếu có
