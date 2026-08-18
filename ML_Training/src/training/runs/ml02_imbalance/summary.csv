@@ -1,0 +1,2 @@
+n_rows,n_positive,n_negative,positive_rate,scale_pos_weight,majority_class_accuracy
+307511,24825,282686,0.08072881945686496,11.387150050352467,0.9192711805431351

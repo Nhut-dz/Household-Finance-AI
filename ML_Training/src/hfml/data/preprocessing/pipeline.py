@@ -63,7 +63,10 @@ from hfml.data.preprocessing.encoders import (
     build_numeric_transformer,
     classify_columns,
 )
-from hfml.data.preprocessing.validator import OutlierClipper
+from hfml.data.preprocessing.validator import (
+    DEFAULT_CLIP_EXCLUDE,
+    OutlierClipper,
+)
 from hfml.logger import get_logger
 
 log = get_logger(__name__)
@@ -110,6 +113,7 @@ def build_preprocessing_pipeline(
     impute_strategy: str = "median",
     high_missing_threshold: float = 0.60,
     clip_quantiles: tuple[float, float] = (0.001, 0.999),
+    clip_exclude: tuple[str, ...] = (),
     nzv_threshold: float = DEFAULT_NZV_THRESHOLD,
     correlation_threshold: float | None = DEFAULT_CORRELATION_THRESHOLD,
     select_k: int | None = None,
@@ -129,6 +133,14 @@ def build_preprocessing_pipeline(
 
     `protect` giữ lại các cột dù chúng gần hằng số hay trùng tương quan — ví
     dụ khi muốn giữ `DAYS_EMPLOYED_MISSING` thay vì `FLAG_EMP_PHONE`.
+
+    `clip_exclude` miễn kẹp biên cho các cột mà **đuôi phân phối CHÍNH LÀ tín
+    hiệu**, chứ không phải nhiễu đo đạc. Kẹp là phép biến đổi **nhiều-về-một**:
+    khác với scaling (đơn điệu, cây bất biến với nó — xem
+    `test_scaling_does_not_change_tree_predictions`), kẹp **xoá hẳn** thứ bậc
+    phía trên biên và không có cách nào khôi phục. Với cột đếm có miền hẹp thì
+    cái giá đó không đổi lại được gì: model là cây, `scaling="none"`, nên một
+    giá trị lớn chỉ rơi vào lá ngoài cùng chứ không kéo lệch được gì cả.
     """
     lower, upper = clip_quantiles
 
@@ -145,7 +157,8 @@ def build_preprocessing_pipeline(
     steps: list[tuple[str, object]] = [
         ("missing", MissingNormalizer()),
         ("drop_high_missing", HighMissingDropper(threshold=high_missing_threshold)),
-        ("clip", OutlierClipper(lower_quantile=lower, upper_quantile=upper)),
+        ("clip", OutlierClipper(lower_quantile=lower, upper_quantile=upper,
+                                exclude=DEFAULT_CLIP_EXCLUDE + tuple(clip_exclude))),
         ("encode", column_transformer),
         ("nzv", NearZeroVarianceRemover(threshold=nzv_threshold, protect=protect)),
     ]

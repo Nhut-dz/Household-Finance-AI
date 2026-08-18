@@ -1,0 +1,5 @@
+strategy,reason
+SMOTE,"Phá hiệu chuẩn xác suất (§7.4 bắt buộc có calibration curve + Brier); và nội suy Euclid vô nghĩa trên 16 cột mã hoá ordinal — 'mã 37,5' không phải tổ chức nào cả."
+Random oversampling,"Nhân bản y hệt dòng dương → cây khớp thuộc chính các dòng đó, và tỉ lệ nền vẫn bị đổi nên xác suất vẫn lệch."
+Random undersampling,"Vứt bỏ ~258.000 hồ sơ âm, tức phần lớn dữ liệu. Với 8,07% dương thì cân về 50/50 nghĩa là chỉ giữ lại 16% dataset."
+Đổi ngưỡng quyết định thay cho trọng số,Không mâu thuẫn với trọng số mà là việc của bước SAU (task 14): chọn ngưỡng LOW_RISK/HIGH_RISK. Nó không thay thế được việc làm cho model chú ý tới lớp thiểu số ngay từ lúc học.

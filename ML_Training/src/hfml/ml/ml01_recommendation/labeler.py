@@ -45,6 +45,7 @@ import numpy as np
 import pandas as pd
 
 from hfml.data.schema import ASSET_COLUMNS
+from hfml.rules import indicators as rule_indicators
 
 
 class RecommendationGroup(str, Enum):
@@ -121,25 +122,28 @@ DEFAULT_THRESHOLDS: Final[LabelThresholds] = LabelThresholds()
 
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Ba chỉ số mà `g(·)` dùng. **Không phải feature** — xem cảnh báo đầu file.
+    """Chỉ số mà `g(·)` dùng, lấy TỪ TẦNG QUY TẮC.
 
-    Đầu vào là các cột THÔ của form. Trả về khung riêng để không ai vô tình
-    nối chúng vào `X`.
+    Uỷ quyền cho `hfml.rules.indicators` — nơi duy nhất định nghĩa các chỉ số
+    này. `g(·)` vì vậy gán nhãn trên đúng những con số mà RB01/RB02 báo cho
+    người dùng, thay vì trên một bộ số riêng.
+
+    Trước đây hàm này TỰ TÍNH, và công thức đã trôi khỏi tầng quy tắc:
+
+        ở đây      `savings_rate = (thu − chi) / thu`        ← BỎ QUÊN trả nợ
+        RB01/RB02  `savings_rate = (thu − chi − trả nợ) / thu`
+
+    Đo trên 4.000 hộ: 72,0% số hộ nhận hai giá trị khác nhau, lệch trung bình
+    0,1393. Hệ quả cụ thể: người dùng đọc "tỷ lệ tiết kiệm 37,1%" từ tầng quy
+    tắc trong khi ML01 gán nhãn cho họ dựa trên 51,4%.
+
+    Vẫn trả về khung RIÊNG để không ai vô tình nối chúng vào `X`.
     """
-    income = df["average_monthly_income"].astype(float)
-    expense = df["average_monthly_expense"].astype(float)
-    savings = df["savings_amount"].astype(float).fillna(0.0)
-    payment = df["monthly_debt_payment"].astype(float).fillna(0.0)
-
-    safe_income = income.where(income > 0)
-    safe_expense = expense.where(expense > 0)
-
+    ind = rule_indicators.compute_frame(df)
     return pd.DataFrame({
-        # Không có chi tiêu thì đệm là vô hạn — dùng inf, không phải NaN, để
-        # so sánh "< 1" vẫn cho kết quả đúng.
-        "savings_months": (savings / safe_expense).replace(np.nan, np.inf),
-        "dti": (payment / safe_income).fillna(0.0),
-        "savings_rate": ((income - expense) / safe_income).fillna(0.0),
+        "savings_months": ind["emergency_months"],
+        "dti": ind["dti"],
+        "savings_rate": ind["savings_rate"],
     }, index=df.index)
 
 
@@ -156,7 +160,7 @@ def label_frame(
     t = thresholds
 
     conditions = [
-        (ind["savings_rate"] < 0) | ((ind["savings_months"] < t.emergency_savings_months) & (ind["savings_rate"] < t.buffer_savings_rate)),
+(ind["savings_rate"] < 0) | ((ind["savings_months"] < t.emergency_savings_months) & (ind["savings_rate"] < t.buffer_savings_rate)),
         ind["dti"] >= t.debt_focus_dti,
         (ind["savings_months"] < t.buffer_savings_months)
         | (ind["savings_rate"] < t.buffer_savings_rate),
@@ -351,4 +355,5 @@ ZERO_WHEN_ABSENT: Final[tuple[str, ...]] = (
     "total_current_debt",
     "monthly_debt_payment",
 )
+
 

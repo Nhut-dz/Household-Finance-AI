@@ -1,5 +1,10 @@
-/** The four top-level pages, in nav order. */
-export type PageKey = 'home' | 'info' | 'chatbot' | 'proposal'
+/**
+ * Các trang chính, theo thứ tự trên thanh điều hướng.
+ *
+ * `loan` đứng ngay sau `info` vì nó là bước nối tiếp: phương án vay gắn với một
+ * hồ sơ hộ gia đình đã lưu, chưa có hồ sơ thì trang đó chưa mở được.
+ */
+export type PageKey = 'home' | 'info' | 'loan' | 'chatbot' | 'proposal'
 
 export type AssetKey = 'nha' | 'xe' | 'dat'
 export type NeedKey = 'muaNha' | 'muaDat' | 'muaXe' | 'vayVon'

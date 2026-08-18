@@ -1,0 +1,17 @@
+feature,position
+dti,0
+credit_income_ratio,1
+children_ratio,2
+age_years,3
+employment_years,4
+employment_ratio,5
+credit_term_implied,6
+bureau_loan_count,7
+bureau_active_loan_count,8
+bureau_overdue_loan_count,9
+bureau_has_overdue,10
+bureau_overdue_loan_share,11
+bureau_debt_income_ratio,12
+bureau_overdue_income_ratio,13
+bureau_credit_income_ratio,14
+bureau_no_record,15

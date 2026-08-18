@@ -33,14 +33,12 @@ def main() -> int:
                         help="số hộ sinh ra (mặc định: theo PopulationParams)")
     parser.add_argument("--seed", type=int, default=None,
                         help="ghi đè random_seed của config")
-    parser.add_argument("--n-splits", type=int, default=None,
-                        help="số fold CV dùng khi phải backfill (mặc định: theo config)")
     parser.add_argument("--top-n", type=int, default=10,
                         help="số feature vẽ trong hình importance")
     args = parser.parse_args()
 
     params = PopulationParams(n=args.rows) if args.rows else None
-    report = build_ml01_report(params, seed=args.seed, n_splits=args.n_splits,
+    report = build_ml01_report(params, seed=args.seed,
                                top_n=args.top_n)
 
     print("\n=== Chỉ số trên tập test ===")

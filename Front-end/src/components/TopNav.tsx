@@ -3,6 +3,7 @@ import type { PageKey } from '../data/profile'
 const ITEMS: { key: PageKey; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'info', label: 'Nhập thông tin' },
+  { key: 'loan', label: 'Thông tin khoản vay' },
   { key: 'chatbot', label: 'Chatbot AI' },
   { key: 'proposal', label: 'Chẩn đoán hồ sơ' },
 ]

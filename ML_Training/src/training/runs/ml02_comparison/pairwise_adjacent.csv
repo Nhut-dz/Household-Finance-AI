@@ -1,0 +1,7 @@
+feature_set,rank_a,rank_b,model_a,model_b,diff,ci_low,ci_high,win_rate,distinguishable
+full,1,2,ml02_xgboost_full,ml02_bagging_full,0.01898553645319312,0.011383075227140054,0.027127609193727344,1.0,True
+full,2,3,ml02_bagging_full,ml02_random_forest_full,0.0019442681354684965,-0.005559842048968868,0.009081062388849152,0.682,False
+full,3,4,ml02_random_forest_full,ml02_decision_tree_full,0.03774960779468467,0.0287468947392151,0.045775459792620384,1.0,True
+reduced,1,2,ml02_xgboost_reduced,ml02_bagging_reduced,0.009944938498053807,0.004415255478531339,0.014836660860297246,1.0,True
+reduced,2,3,ml02_bagging_reduced,ml02_random_forest_reduced,0.009893029246193508,0.004926830085096387,0.015373891406273384,1.0,True
+reduced,3,4,ml02_random_forest_reduced,ml02_decision_tree_reduced,0.007482725922279138,0.0017047169428434266,0.0139868438276003,0.997,True

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   AlertCircle,
+  FileText,
   Lightbulb,
   Loader2,
   LogOut,
@@ -15,7 +16,13 @@ import {
   type PageKey,
 } from '../data/profile'
 import { dong } from '../lib/format'
-import { getMessages, sendMessage, type ChatMessage } from '../api/messages'
+import {
+  getMessages,
+  sendMessage,
+  type ChatMessage,
+  type IntentCode,
+} from '../api/messages'
+import { getLoanApplication } from '../api/loanApplication'
 import { ApiError } from '../lib/api'
 
 /** Đọc câu trả lời bằng giọng nói của trình duyệt (không cần API riêng). */
@@ -28,24 +35,46 @@ function speak(text: string) {
   window.speechSynthesis.speak(utterance)
 }
 
-const QUICK = [
+/**
+ * Bốn chip gợi ý (cập nhật 15/08/2026).
+ *
+ * Mỗi chip mang một `intent` gửi thẳng xuống engine — Hướng 1 của PLAN §8.2.
+ * Trước đây chip chỉ là nhãn chữ và engine phải đoán ý định bằng từ khoá; cách
+ * đó hỏng ngay với hai chức năng ML mới, vì "Chẩn đoán rủi ro vay vốn" chứa chữ
+ * "vay" nên rơi vào nhánh hạn mức vay, còn "Chẩn đoán sức khỏe tài chính" không
+ * chứa từ khoá nào nên rơi xuống nhánh trả lời chung. Cả hai vẫn trả lời trôi
+ * chảy, chỉ là bằng nhánh sai.
+ *
+ * "Gói đầu tư" và "Gói vay mua nhà" đã rút khỏi nhóm này. Hai nhánh xử lý tương
+ * ứng vẫn còn nguyên ở engine và người dùng vẫn gõ tay để dùng được.
+ */
+const QUICK: {
+  label: string
+  intent: IntentCode
+  tone: string
+  iconTone: string
+}[] = [
   {
     label: 'Gói tiết kiệm',
+    intent: 'SAVINGS_PACKAGE',
     tone: 'bg-brand-100 text-brand-700 hover:bg-brand-200',
     iconTone: 'text-amber-500 fill-amber-300',
   },
   {
-    label: 'Gói đầu tư',
-    tone: 'bg-amber-400 text-white hover:bg-amber-500',
-    iconTone: 'text-white fill-white/40',
-  },
-  {
-    label: 'Gói vay mua nhà',
+    label: 'Chẩn đoán sức khỏe tài chính',
+    intent: 'FINANCIAL_HEALTH_DIAGNOSIS',
     tone: 'bg-brand-600 text-white hover:bg-brand-700',
     iconTone: 'text-amber-300 fill-amber-300/40',
   },
   {
+    label: 'Chẩn đoán rủi ro vay vốn',
+    intent: 'LOAN_RISK_DIAGNOSIS',
+    tone: 'bg-amber-400 text-white hover:bg-amber-500',
+    iconTone: 'text-white fill-white/40',
+  },
+  {
     label: 'Quy tắc 50/30/20',
+    intent: 'BUDGET_50_30_20',
     tone: 'bg-purple-600 text-white hover:bg-purple-700',
     iconTone: 'text-amber-300 fill-amber-300/40',
   },
@@ -95,6 +124,8 @@ export default function ChatbotPage({
   const [draft, setDraft] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  /** Đang kiểm hộ đã khai thông tin khoản vay chưa, trước khi chạy ML02. */
+  const [checkingLoan, setCheckingLoan] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Nạp hội thoại của PHIÊN ĐANG MỞ. Chạy lại khi đổi hồ sơ, và khi
@@ -126,7 +157,7 @@ export default function ChatbotPage({
     }
   }, [householdId, chatResetToken])
 
-  const send = async (text: string) => {
+  const send = async (text: string, intent?: IntentCode) => {
     const trimmed = text.trim()
     if (!trimmed || sending) return
 
@@ -142,7 +173,7 @@ export default function ChatbotPage({
     try {
       // `conversation_id` trong phản hồi do server quyết định — FE không giữ và
       // không gửi lên, nên không thể ghi nhầm vào một phiên đã đóng.
-      const sent = await sendMessage(householdId, trimmed)
+      const sent = await sendMessage(householdId, trimmed, intent)
       setMessages((prev) => [...prev, sent.user_message, sent.ai_message])
     } catch (err) {
       setError(
@@ -155,6 +186,43 @@ export default function ChatbotPage({
     } finally {
       setSending(false)
     }
+  }
+
+  /**
+   * Bấm một chip gợi ý.
+   *
+   * "Chẩn đoán rủi ro vay vốn" cần dữ liệu của màn *Thông tin khoản vay*, nên
+   * hộ chưa khai thì đưa thẳng sang đó thay vì gửi một câu hỏi chỉ để nhận lại
+   * lời nhắc — người dùng bấm nút xong mà vẫn phải tự đi tìm màn nhập là một
+   * bước thừa.
+   *
+   * Backend vẫn kiểm lại điều kiện này và trả `requires_loan_application`. Kiểm
+   * hai nơi ở đây KHÔNG phải chép luật nghiệp vụ: phía FE chỉ quyết định điều
+   * hướng cho mượt, còn quyết định "có chạy model hay không" vẫn chỉ có một
+   * chỗ, là engine.
+   */
+  const handleQuick = async (label: string, intent: IntentCode) => {
+    if (intent !== 'LOAN_RISK_DIAGNOSIS' || householdId === null) {
+      return send(label, intent)
+    }
+
+    setCheckingLoan(true)
+    try {
+      await getLoanApplication(householdId)
+    } catch (err) {
+      // 404 nghĩa là hộ chưa khai — trạng thái bình thường, không phải lỗi.
+      // Lỗi khác (mất mạng, 500) thì cứ gửi, để engine trả lời cho thống nhất
+      // thay vì FE tự đoán rồi điều hướng nhầm.
+      if (err instanceof ApiError && err.status === 404) {
+        setError(null)
+        onNavigate('loan')
+        return
+      }
+    } finally {
+      setCheckingLoan(false)
+    }
+
+    await send(label, intent)
   }
 
   return (
@@ -212,13 +280,30 @@ export default function ChatbotPage({
                     <p className="whitespace-pre-line text-sm leading-relaxed text-slate-700">
                       {m.content}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => speak(m.content)}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50"
-                    >
-                      <Volume2 size={14} /> Đọc bằng giọng nói
-                    </button>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => speak(m.content)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50"
+                      >
+                        <Volume2 size={14} /> Đọc bằng giọng nói
+                      </button>
+
+                      {/*
+                        Engine báo thiếu dữ liệu khoản vay. Đưa luôn nút sang màn
+                        nhập: bảo người dùng "vui lòng điền màn Thông tin khoản
+                        vay" rồi để họ tự đi tìm là bỏ dở việc giữa chừng.
+                      */}
+                      {m.requires_loan_application && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('loan')}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+                        >
+                          <FileText size={14} /> Nhập thông tin khoản vay
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -250,12 +335,12 @@ export default function ChatbotPage({
 
           {/* Quick actions */}
           <div className="mt-6 flex flex-wrap gap-3">
-            {QUICK.map(({ label, tone, iconTone }) => (
+            {QUICK.map(({ label, intent, tone, iconTone }) => (
               <button
-                key={label}
+                key={intent}
                 type="button"
-                onClick={() => send(label)}
-                disabled={sending}
+                onClick={() => handleQuick(label, intent)}
+                disabled={sending || checkingLoan}
                 className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${tone}`}
               >
                 <Lightbulb size={16} className={iconTone} />

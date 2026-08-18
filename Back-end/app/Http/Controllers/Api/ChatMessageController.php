@@ -76,8 +76,13 @@ class ChatMessageController extends Controller
         operationId: 'storeChatMessage',
         description: 'Chuyển câu hỏi sang service tư vấn của nhóm Python rồi lưu '
             .'cả câu hỏi lẫn câu trả lời. Trả về cả hai để FE render một lần. '
-            .'Chưa cấu hình PYTHON_ADVISOR_URL thì trả 503 và không ghi gì vào DB.',
-        summary: 'Gửi câu hỏi tự do cho Chatbot',
+            .'Chưa cấu hình PYTHON_ADVISOR_URL thì trả 503 và không ghi gì vào DB. '
+            ."\n\n"
+            .'Bấm chip gợi ý thì gửi kèm `intent_code`, engine đi thẳng vào đúng '
+            .'chức năng. Câu tự gõ thì bỏ trống, engine mới đoán bằng từ khoá. '
+            .'Hai chức năng chạy model (FINANCIAL_HEALTH_DIAGNOSIS → ML01, '
+            .'LOAN_RISK_DIAGNOSIS → ML02) CHỈ kích hoạt được bằng `intent_code`.',
+        summary: 'Gửi câu hỏi cho Chatbot (tự gõ hoặc bấm chip gợi ý)',
         security: [[], ['bearerAuth' => []]],
         requestBody: new OA\RequestBody(
             required: true,
@@ -85,6 +90,18 @@ class ChatMessageController extends Controller
                 required: ['content'],
                 properties: [
                     new OA\Property(property: 'content', type: 'string', maxLength: 2000, example: 'Gia đình tôi nên trả nợ trước hay tiết kiệm trước?'),
+                    new OA\Property(
+                        property: 'intent_code',
+                        description: 'Chỉ gửi khi người dùng bấm chip gợi ý.',
+                        type: 'string',
+                        enum: [
+                            'SAVINGS_PACKAGE', 'FINANCIAL_HEALTH_DIAGNOSIS',
+                            'LOAN_RISK_DIAGNOSIS', 'BUDGET_50_30_20',
+                            'LOAN_CAPACITY', 'INVESTMENT', 'GENERAL',
+                        ],
+                        example: 'FINANCIAL_HEALTH_DIAGNOSIS',
+                        nullable: true
+                    ),
                     new OA\Property(property: 'guest_session_id', type: 'string', maxLength: 64, nullable: true, description: 'Bắt buộc khi chưa đăng nhập.'),
                 ],
                 type: 'object'
@@ -133,7 +150,11 @@ class ChatMessageController extends Controller
             $request->guestSessionId()
         );
 
-        $messages = $this->chatService->send($household, $request->validated('content'));
+        $messages = $this->chatService->send(
+            $household,
+            $request->validated('content'),
+            $request->intentCode()
+        );
 
         return $this->successResponse($messages, __('lang.Message_sent'), Response::HTTP_CREATED);
     }

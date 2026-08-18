@@ -7,7 +7,15 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 from hfml.data.schema import HouseholdProfile
+from hfml.rules import indicators
 from hfml.rules.thresholds import RB02Thresholds, DEFAULT_THRESHOLDS
+
+
+def _read_total_debt(profile: Any) -> float:
+    """Tổng dư nợ — chỉ RB02 dùng nên không đưa vào bộ chỉ số chung."""
+    if isinstance(profile, HouseholdProfile):
+        return float(profile.total_current_debt or 0.0)
+    return float(profile.get("total_current_debt") or profile.get("total_debt") or 0.0)
 
 
 def evaluate_financial_health(
@@ -18,35 +26,34 @@ def evaluate_financial_health(
     if thresholds is None:
         thresholds = DEFAULT_THRESHOLDS.rb02
 
+    # Chỉ số tiền tệ lấy từ ĐỊNH NGHĨA DUY NHẤT (`hfml.rules.indicators`).
+    #
+    # `savings_rate` ở đây TỪNG được kẹp về 0 bằng `max(0, ...)`. Phép kẹp đó
+    # xoá sạch dấu âm ở đúng 39,4% số hộ đang thâm hụt — nhóm mà độ lớn của
+    # thâm hụt là thông tin quan trọng nhất — và làm RB02 báo 0,0 trong khi
+    # RB01 báo −0,2548 cho cùng một hộ. Nay cả hai dùng chung một con số.
+    ind = indicators.compute(profile)
+    income, expense = ind.income, ind.expense
+    debt_payment, savings = ind.debt_payment, ind.savings
+    total_debt = _read_total_debt(profile)
+    net_savings = ind.net_cashflow
+    dti = ind.dti
+    savings_rate = ind.savings_rate
+    emergency_months = ind.emergency_months
+
     if isinstance(profile, HouseholdProfile):
-        income = float(profile.average_monthly_income)
-        expense = float(profile.average_monthly_expense) if profile.average_monthly_expense is not None else 0.0
-        debt_payment = float(profile.monthly_debt_payment) if profile.monthly_debt_payment is not None else 0.0
-        total_debt = float(profile.total_current_debt) if profile.total_current_debt is not None else 0.0
-        savings = float(profile.savings_amount) if profile.savings_amount is not None else 0.0
         has_dependents = bool(profile.has_dependents)
         household_size = int(profile.household_size)
         children_count = int(profile.children_count)
         assets = [a.value if hasattr(a, "value") else str(a) for a in profile.assets]
     else:
-        # Đồng bộ đầy đủ trường từ FE Form Pydantic và DB Laravel Backend
-        income = float(profile.get("average_monthly_income") or profile.get("monthly_income") or 0.0)
-        expense = float(profile.get("average_monthly_expense") or profile.get("monthly_living_cost") or 0.0)
-        debt_payment = float(profile.get("monthly_debt_payment") or 0.0)
-        total_debt = float(profile.get("total_current_debt") or profile.get("total_debt") or 0.0)
-        savings = float(profile.get("savings_amount") or profile.get("current_savings") or 0.0)
         has_dependents = bool(profile.get("has_dependents") or profile.get("supports_elderly") or False)
         household_size = int(profile.get("household_size") or 1)
         children_count = int(profile.get("children_count") or 0)
         assets_raw = profile.get("assets") or []
         assets = [a.value if hasattr(a, "value") else str(a) for a in assets_raw]
 
-    # 1. Tính toán các chỉ số tài chính ròng
-    net_savings = max(0.0, income - expense - debt_payment)
-    dti = (debt_payment / income) if income > 0 else 0.0
     dti_percent = dti * 100.0  # Tương thích cột tblcalculation_results.dti_ratio (0-100)
-
-    # Đánh giá dti_status (3 mức LOW/MEDIUM/HIGH theo tblcalculation_results DB)
     if dti < 0.20:
         dti_status = "LOW"
     elif dti < 0.40:
@@ -54,8 +61,6 @@ def evaluate_financial_health(
     else:
         dti_status = "HIGH"
 
-    emergency_months = (savings / expense) if expense > 0 else (999.0 if savings > 0 else 0.0)
-    savings_rate = (net_savings / income) if income > 0 else 0.0
     income_per_capita = (income / household_size) if household_size > 0 else income
 
     # Ngưỡng đệm khẩn cấp khuyến nghị: Nâng từ 3 tháng lên 6 tháng nếu có phụng dưỡng người già
