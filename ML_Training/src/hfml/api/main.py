@@ -493,6 +493,13 @@ def advise(req: AdviseRequest) -> AdviseResponse:
         return _advise_loan_risk(req)
 
     # ------------------------------------------------- nhánh rule, giữ nguyên
+    # ------------------------------------------------- xử lý lời văn tự nhiên đẹp mắt
+    if net_cashflow < 0:
+        abs_deficit = abs(net_cashflow)
+        cashflow_str = f"⚠️ Dòng tiền đang bị thâm hụt (bội chi) **{abs_deficit:,.0f} VNĐ/tháng**"
+    else:
+        cashflow_str = f"Thặng dư khả dụng hàng tháng đạt **{net_cashflow:,.0f} VNĐ/tháng**"
+
     if intent is IntentCode.LOAN_CAPACITY:
         asset_price = parsed_price or float(household.get("asset_price") or 0.0)
         loan_eval = evaluate_loan_capacity(household, asset_price=asset_price, term_months=term_months)
@@ -501,84 +508,104 @@ def advise(req: AdviseRequest) -> AdviseResponse:
         max_pmt = loan_val.get("max_allowed_monthly_payment", 0.0)
         max_ltv_loan = loan_val.get("max_loan_by_ltv", 0.0)
 
-        debt_note = f" (Đã trừ đi khoản nợ đang trả {debt_payment:,.0f} VNĐ/tháng)" if debt_payment > 0 else ""
+        debt_note = f" (đã trừ nghĩa vụ trả nợ hiện tại {debt_payment:,.0f} VNĐ/tháng)" if debt_payment > 0 else ""
 
         if asset_price > 0:
             down_payment = max(0.0, asset_price - max_loan)
             advice_detail = (
-                f"🏡 **Tư vấn vay mua tài sản ({asset_price:,.0f} VNĐ, kỳ hạn {term_years_str})**:\n"
-                f"- Hạn mức vay an toàn tối đa dựa trên thu nhập (DTI ≤ 40%, {term_years_str}): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
-                f"- Số tiền trả gốc lãi tối đa có thể gánh thêm: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
-                f"- Hạn mức vay tối đa theo tài sản thế chấp (LTV 70%): **{max_ltv_loan:,.0f} VNĐ**.\n"
-                f"- Năng lực thế chấp tài sản sở hữu hiện tại ({asset_desc}): **Mức {collateral_quality}**.\n"
-                f"- 💡 **Khuyên dùng**: Bạn có thể vay an toàn tối đa **{max_loan:,.0f} VNĐ** trong thời hạn **{term_years_str}**. "
-                f"Do đó bạn cần chuẩn bị sẵn vốn tự có (tiền trả trước) tối thiểu **{down_payment:,.0f} VNĐ** ({down_payment/asset_price:.1%}) trước khi quyết định mua."
+                f"🏡 **Tư vấn hạn mức vay mua tài sản ({asset_price:,.0f} VNĐ, kỳ hạn {term_years_str})**:\n\n"
+                f"- Hạn mức vay an toàn tối đa (DTI ≤ 40%): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
+                f"- Trả gốc + lãi hàng tháng tối đa có thể gánh thêm: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
+                f"- Hạn mức thế chấp theo giá trị tài sản (LTV 70%): **{max_ltv_loan:,.0f} VNĐ**.\n"
+                f"- Năng lực thế chấp từ tài sản sở hữu hiện tại ({asset_desc}): **Mức {collateral_quality}**.\n\n"
+                f"💡 **Lời khuyên**: Bạn nên vay an toàn tối đa **{max_loan:,.0f} VNĐ** và cần chuẩn bị trước tiền mặt tự có tối thiểu **{down_payment:,.0f} VNĐ** ({down_payment/asset_price:.1%}) trước khi quyết định mua."
             )
         else:
             advice_detail = (
-                f"🏦 **Tư vấn hạn mức vay an toàn (kỳ hạn {term_years_str})**:\n"
-                f"- Hạn mức vay an toàn tối đa ({term_years_str}): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
-                f"- Khả năng trả gốc lãi vay mới tối đa: **{max_pmt:,.0f} VNĐ/tháng**.\n"
-                f"- Năng lực thế chấp từ tài sản sở hữu ({asset_desc}): **Mức {collateral_quality}**."
+                f"🏦 **Tư vấn hạn mức vay an toàn (Kỳ hạn {term_years_str})**:\n\n"
+                f"- Hạn mức vay bổ sung an toàn tối đa: **{max_loan:,.0f} VNĐ**{debt_note}.\n"
+                f"- Khả năng trích thặng dư trả nợ mới hàng tháng: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
+                f"- Đánh giá tài sản thế chấp hiện có ({asset_desc}): **Mức {collateral_quality}**."
             )
 
     elif intent is IntentCode.SAVINGS_PACKAGE:
         buf_min = expense * min_emerg_target
-        months_min = (buf_min / net_cashflow) if net_cashflow > 0 else 0
-        elderly_note = " (Đã nâng lên 6 tháng do có phụng dưỡng người già)" if has_dependents else ""
+        elderly_note = " (Đã nâng mốc quỹ dự phòng từ 3 lên 6 tháng chi tiêu do gia đình có người già phụng dưỡng)" if has_dependents else ""
 
-        advice_detail = (
-            f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
-            f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
-            f"- Số dư thặng dư khả dụng hàng tháng: **{net_cashflow:,.0f} VNĐ/tháng** (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}).\n"
-            f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {buf_min:,.0f} VNĐ){elderly_note}: Cần tích lũy khoảng **{months_min:.1f} tháng**."
-        )
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng khẩn cấp**:\n\n"
+                f"- Tiết kiệm tích lũy hiện có: **{savings_desc}**.\n"
+                f"- Trạng thái dòng tiền: {cashflow_str}.\n"
+                f"- Mục tiêu Quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = **{buf_min:,.0f} VNĐ**){elderly_note}.\n\n"
+                f"⚠️ **Khuyến nghị khẩn cấp**: Do dòng tiền hiện tại đang bị thâm hụt ({net_cashflow:,.0f} VNĐ/tháng), gia đình chưa có thặng dư để tích lũy. "
+                f"Ưu tiên số 1 lúc này là rà soát và thắt chặt các khoản chi tiêu chưa cấp thiết để cân bằng dòng tiền."
+            )
+        else:
+            months_min = buf_min / net_cashflow
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng khẩn cấp**:\n\n"
+                f"- Tiết kiệm tích lũy hiện có: **{savings_desc}**.\n"
+                f"- {cashflow_str} (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}).\n"
+                f"- Mục tiêu Quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = **{buf_min:,.0f} VNĐ**){elderly_note}.\n\n"
+                f"💡 **Lộ trình thực hiện**: Với số dư thặng dư hiện tại, gia đình chỉ cần trích tích lũy liên tục trong khoảng **{months_min:.1f} tháng** là sẽ hoàn thành 100% mục tiêu quỹ dự phòng an toàn."
+            )
 
-    # Chip "Gói đầu tư" đã rút khỏi nhóm gợi ý (15/08/2026), nhưng nhánh này
-    # giữ nguyên: người dùng vẫn gõ "tư vấn đầu tư" được, và bỏ nhánh đi thì
-    # câu đó rơi xuống trả lời chung.
     elif intent is IntentCode.INVESTMENT:
-        advice_detail = (
-            f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
-            f"- Với thặng dư dòng tiền **{net_cashflow:,.0f} VNĐ/tháng** (Tỷ lệ tiết kiệm {savings_rate:.1%}):\n"
-            f"- Trích **30% ({net_cashflow*0.3:,.0f} VNĐ)** cho tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
-            f"- Trích **70% ({net_cashflow*0.7:,.0f} VNĐ)** đầu tư vào tài sản sinh lời an toàn (Trái phiếu / Chứng chỉ quỹ)."
-        )
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư**:\n\n"
+                f"- Trạng thái dòng tiền: {cashflow_str}.\n\n"
+                f"⚠️ **Khuyến nghị**: Hiện tại gia đình chưa có dòng tiền thặng dư dương nên chưa phù hợp để tham gia các kênh đầu tư sinh lời. "
+                f"Cần ưu tiên tái cơ cấu thu chi để tạo thặng dư trước khi tính đến chuyện đầu tư."
+            )
+        else:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư sinh lời**:\n\n"
+                f"- Với {cashflow_str} (Tỷ lệ tiết kiệm {savings_rate:.1%}), hệ thống đề xuất mô hình phân bổ an toàn:\n"
+                f"  - **30% ({net_cashflow*0.3:,.0f} VNĐ/tháng)**: Dành cho Tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
+                f"  - **70% ({net_cashflow*0.7:,.0f} VNĐ/tháng)**: Đầu tư tài sản sinh lời an toàn (Trái phiếu uy tín / Chứng chỉ quỹ)."
+            )
 
     elif intent is IntentCode.BUDGET_50_30_20:
         needs_target = income * 0.50
         wants_target = income * 0.30
         savings_target = income * 0.20
 
-        advice_detail = (
-            f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ)**:\n"
-            f"- **50% Nhu cầu thiết yếu** (Tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại {expense:,.0f} VNĐ.\n"
-            f"- **30% Cá nhân & Giải trí** (Tối đa {wants_target:,.0f} VNĐ).\n"
-            f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {savings_target:,.0f} VNĐ): Thặng dư hiện tại đạt **{net_cashflow:,.0f} VNĐ** ({savings_rate:.1%})."
-        )
+        if net_cashflow < 0:
+            advice_detail = (
+                f"📊 **Phân tích ngân sách theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ/tháng)**:\n\n"
+                f"- **50% Nhu cầu thiết yếu** (Hạn mức tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại **{expense:,.0f} VNĐ**"
+                f" + Trả gốc lãi nợ **{debt_payment:,.0f} VNĐ/tháng**.\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {wants_target:,.0f} VNĐ).\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Yêu cầu tối thiểu {savings_target:,.0f} VNĐ).\n\n"
+                f"⚠️ **Cảnh báo ngân sách**: Dòng tiền hiện tại đang bị thâm hụt **{abs(net_cashflow):,.0f} VNĐ/tháng** do tổng chi tiêu và nghĩa vụ trả nợ vượt quá thu nhập. "
+                f"Gia đình cần ngay lập tức thắt chặt nhóm chi tiêu thiết yếu và tạm dừng chi tiêu giải trí để đưa ngân sách về trạng thái cân bằng."
+            )
+        else:
+            advice_detail = (
+                f"📊 **Phân tích ngân sách theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ/tháng)**:\n\n"
+                f"- **50% Nhu cầu thiết yếu** (Tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại {expense:,.0f} VNĐ (Kiểm soát tốt).\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {wants_target:,.0f} VNĐ): Ngân sách cho nâng cao chất lượng cuộc sống.\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {savings_target:,.0f} VNĐ): {cashflow_str} (Chiếm {savings_rate:.1%} thu nhập).\n\n"
+                f"💡 **Nhận xét**: Gia đình bạn đang phân bổ tiết kiệm vượt trội hơn mốc tối thiểu 20%, đây là nền tảng tài chính rất lành mạnh."
+            )
     else:
-        elderly_text = " Ghi nhận gia đình có phụng dưỡng người già ➔ Nâng ngưỡng quỹ dự phòng y tế lên 6 tháng chi tiêu sinh hoạt." if has_dependents else ""
+        elderly_text = " Hệ thống đã tự động nâng mốc quỹ dự phòng y tế lên 6 tháng chi tiêu sinh hoạt do gia đình có người già phụng dưỡng." if has_dependents else ""
         advice_detail = (
-            f"Dựa trên phân tích dòng tiền và đòn bẩy nợ hiện tại, bạn có số dư thặng dư khả dụng hàng tháng là **{net_cashflow:,.0f} VNĐ** (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}). "
-            f"Hạn mức trả nợ mới đề xuất thêm tối đa là **{max_add_payment:,.0f} VNĐ/tháng**.{elderly_text}"
+            f"Dựa trên phân tích dòng tiền và đòn bẩy nợ hiện tại, gia đình bạn đang có số dư thặng dư khả dụng hàng tháng là **{net_cashflow:,.0f} VNĐ** (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}). "
+            f"Hạn mức trả gốc lãi vay mới đề xuất thêm tối đa là **{max_add_payment:,.0f} VNĐ/tháng**.{elderly_text}"
         )
-
-    # Người dùng bấm chip thì "câu hỏi" chỉ là nhãn của chip, nhắc lại nguyên
-    # văn nghe như máy đọc lại chính nút vừa bấm.
-    heading = (f"💡 **{INTENT_LABELS[intent]}**:" if req.intent_code
-               else f"💡 **Trả lời cho câu hỏi: '{question}'**:")
 
     if req.intent_code and intent not in (IntentCode.FINANCIAL_HEALTH_DIAGNOSIS, IntentCode.GENERAL):
         answer = (
-            f"Chào {rep_name}, hệ thống AI tư vấn tài chính xin gửi bạn thông tin chi tiết:\n\n"
-            f"{heading}\n"
+            f"Chào {rep_name}, hệ thống AI tư vấn tài chính xin gửi bạn phân tích chi tiết:\n\n"
             f"{advice_detail}"
         )
     else:
         answer = (
             f"Chào {rep_name}, hệ thống AI tư vấn tài chính đã phân tích hồ sơ của bạn.\n\n"
             f"{rule_summary}\n\n"
-            f"{heading}\n"
             f"{advice_detail}"
         )
 
