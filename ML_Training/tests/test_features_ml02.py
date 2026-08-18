@@ -20,6 +20,7 @@ from hfml.data.features.builder import SHARED_FEATURES
 from hfml.ml.ml02_credit_risk.clean import ID_COLUMN, TARGET_COLUMN
 from hfml.ml.ml02_credit_risk.features import (
     FULL_ONLY_FEATURES,
+    REDUCED_EXCLUDED,
     REDUCED_FEATURES,
     BureauJoiner,
     HomeCreditFeatureBuilder,
@@ -91,9 +92,35 @@ def test_reduced_set_contains_no_absolute_money_column():
     assert absolute_money_columns(list(REDUCED_FEATURES)) == []
 
 
-def test_every_shared_feature_is_in_the_reduced_set():
-    """Bảy feature dùng chung của §2.1b phải có mặt đủ."""
-    assert set(SHARED_FEATURES) <= set(REDUCED_FEATURES)
+def test_every_shared_feature_is_in_the_reduced_set_unless_excluded_on_purpose():
+    """Feature dùng chung của §2.1b phải có mặt đủ, TRỪ phần loại có lý do.
+
+    Ràng buộc vẫn chặt: một feature chỉ được vắng mặt khi nó nằm trong
+    `REDUCED_EXCLUDED` — tức có người đã viết ra lý do. Rơi rụng âm thầm thì
+    test này bắt được.
+    """
+    missing = set(SHARED_FEATURES) - set(REDUCED_FEATURES)
+    assert missing == set(REDUCED_EXCLUDED), (
+        f"Feature dùng chung biến mất khỏi bộ rút gọn mà không khai lý do: "
+        f"{missing - set(REDUCED_EXCLUDED)}")
+
+
+def test_excluded_features_carry_a_reason():
+    """Loại một feature khỏi bộ deploy phải kèm lý do đọc được, không để rỗng."""
+    for name, reason in REDUCED_EXCLUDED.items():
+        assert reason.strip(), f"{name} bị loại mà không ghi lý do"
+
+
+def test_income_per_capita_ratio_is_out_of_the_deployed_set():
+    """Khoá lại phần sửa B2 — xem `REDUCED_EXCLUDED` để biết vì sao.
+
+    Mẫu số của feature này là trung vị Home Credit, còn tử số lúc inference là
+    thu nhập hộ Việt Nam. Mọi hồ sơ VN đều vượt biên kẹp trên nên feature
+    thành hằng số 9,00 lúc chạy thật. Đưa nó trở lại bộ deploy mà chưa có mức
+    tham chiếu của quần thể Việt Nam là tái tạo đúng lỗi đó.
+    """
+    assert "income_per_capita_ratio" not in REDUCED_FEATURES
+    assert "income_per_capita_ratio" in REDUCED_EXCLUDED
 
 
 def test_reduced_and_full_only_sets_do_not_overlap():

@@ -85,6 +85,26 @@ def _f(value: Decimal | float | None, default: float = 0.0) -> float:
     return default if value is None else float(value)
 
 
+def _unknown_unless_never_borrowed(never_borrowed: bool) -> float:
+    """`0.0` nếu chưa từng vay, ngược lại `NaN`.
+
+    Hai trạng thái này KHÁC nhau và không được gộp:
+
+        chưa từng vay   → đại lượng bằng 0, và ta BIẾT chắc điều đó
+        đã từng vay     → đại lượng có tồn tại nhưng form không hỏi → không biết
+
+    Điền 0 cho nhóm thứ hai là khẳng định họ không còn khoản nào hiệu lực và
+    chưa từng được cấp hạn mức nào — sai. Điền một cận trên/cận dưới "an toàn"
+    cũng sai theo kiểu khó thấy hơn: nó đúng về bất đẳng thức nhưng đặt hồ sơ
+    vào vùng cực đoan của phân phối huấn luyện.
+
+    `NaN` để bước `SimpleImputer(median)` trong Pipeline điền bằng trung vị
+    học từ tập train — tức đặt hồ sơ vào chỗ TRUNG TÍNH khi không có thông
+    tin, đúng nghĩa "không biết". Cùng quy ước với `BUREAU_HISTORY_YEARS`.
+    """
+    return 0.0 if never_borrowed else float("nan")
+
+
 # --------------------------------------------------------------------------
 # ML01 — 17 biến thô của form
 # --------------------------------------------------------------------------
@@ -159,6 +179,25 @@ def to_ml02_frame(
     quá hạn". Hai đại lượng gần nhau nhưng không bằng nhau; đây là chỗ lệch
     định nghĩa đã ghi vào phần giới hạn của model. Ánh xạ thẳng vì đó là xấp
     xỉ tốt nhất có được, không phải vì chúng đồng nhất.
+
+    Quy tắc cho cột form KHÔNG hỏi: `NaN`, đừng thay bằng cận trên/cận dưới
+    ------------------------------------------------------------------------
+    Một xấp xỉ "an toàn về bất đẳng thức" vẫn có thể sai nặng về PHÂN PHỐI, và
+    kiểu sai đó không báo lỗi. Hai cột dưới đây từng được gán cận, và hệ quả
+    đo được trên 46.127 hồ sơ validation là:
+
+        BUREAU_TOTAL_CREDIT  := dư nợ hiện tại   ⟹ ép `debt == credit`
+                                                   (chỉ 0,63% hồ sơ train có)
+        BUREAU_ACTIVE_LOAN_COUNT := tổng số khoản ⟹ ép `active == total`
+                                                   (chỉ 12,47% hồ sơ train có)
+
+        P trung bình   0,08073 → 0,13118   (+63%)
+        tỉ lệ cảnh báo  17,78% → 42,79%
+        PR-AUC          0,1709 → 0,1362    (−20%)
+        25,36% hồ sơ đổi nhãn LOW_RISK/HIGH_RISK
+
+    Xác suất trung bình 0,08073 trùng khít tỉ lệ nền 8,07% của Home Credit —
+    tức lớp hiệu chuẩn vốn rất chuẩn, và chính hai phép gán này phá nó.
     """
     annual_income = _f(profile.average_monthly_income) * MONTHS_PER_YEAR
     chua_tung_vay = loan.previous_loan_count == 0
@@ -176,19 +215,31 @@ def to_ml02_frame(
 
         # -- Mục C của form → phần tổng hợp bureau ---------------------------
         "BUREAU_LOAN_COUNT": float(loan.previous_loan_count),
-        # Form không hỏi riêng số khoản còn hiệu lực. Không bịa: dùng chính số
-        # khoản vay trước đây làm cận trên, và ghi rõ đây là XẤP XỈ.
-        "BUREAU_ACTIVE_LOAN_COUNT": float(loan.previous_loan_count),
+        # Số khoản CÒN HIỆU LỰC: form không hỏi → `NaN`, trừ khi chưa từng vay.
+        #
+        # Trước đây gán bằng `previous_loan_count` với lý do "dùng cận trên".
+        # Đo lại mới thấy cái giá: đẳng thức `active == total` chỉ đúng ở
+        # **12,47%** hồ sơ train (tỉ lệ thật trung vị 0,375), nên mọi hồ sơ
+        # inference bị đẩy vào một góc phân phối mà model gần như chưa thấy.
+        # Cận trên nghe hợp lý nhưng nó KHÔNG phải giá trị trung tính — nó là
+        # giá trị cực đoan.
+        "BUREAU_ACTIVE_LOAN_COUNT": _unknown_unless_never_borrowed(chua_tung_vay),
         # "số lần trả chậm" (form) ↔ "số khoản đang quá hạn" (bureau) — kẹp lại
         # không vượt tổng số khoản, vì bureau không thể đếm nhiều hơn thế.
         "BUREAU_OVERDUE_LOAN_COUNT": float(
             min(loan.late_payment_count, loan.previous_loan_count)),
         "BUREAU_HAS_OVERDUE": float(loan.has_overdue_loan),
         "BUREAU_TOTAL_OVERDUE": _f(loan.total_overdue_amount),
+        # Dư nợ HIỆN TẠI: form có hỏi → ánh xạ thẳng, đây là số thật.
         "BUREAU_TOTAL_DEBT": _f(profile.total_current_debt),
-        # Hạn mức từng được cấp: form không hỏi. Dư nợ hiện tại là cận dưới
-        # đúng nghĩa — không bao giờ lớn hơn tổng hạn mức đã cấp.
-        "BUREAU_TOTAL_CREDIT": _f(profile.total_current_debt),
+        # Tổng hạn mức TỪNG ĐƯỢC CẤP: form không hỏi → `NaN`.
+        #
+        # Trước đây gán bằng dư nợ hiện tại với lý do "cận dưới đúng nghĩa".
+        # Đúng về mặt bất đẳng thức, sai về mặt phân phối: nó ép
+        # `debt == credit`, một đẳng thức chỉ xuất hiện ở **0,63%** hồ sơ train
+        # (tỉ lệ thật trung vị 0,2091). Hệ quả đo được: xác suất trung bình
+        # 0,0807 → 0,1312 và tỉ lệ cảnh báo 17,78% → 42,79%.
+        "BUREAU_TOTAL_CREDIT": _unknown_unless_never_borrowed(chua_tung_vay),
         # Số năm có quan hệ tín dụng: form KHÔNG hỏi. Để `NaN` chứ không đoán —
         # người chưa từng vay thì đại lượng này không tồn tại, còn người từng
         # vay thì ta không biết. Bước điền thiếu trong Pipeline lo tiếp.

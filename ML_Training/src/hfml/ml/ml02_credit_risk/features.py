@@ -215,9 +215,35 @@ ENGINEERED_FEATURES: Final[tuple[tuple[str, str, str, bool], ...]] = (
      "AMT_CREDIT / AMT_GOODS_PRICE", False),
 )
 
-#: Bộ RÚT GỌN = 7 feature dùng chung + phần sinh thêm mà form thu được.
-#: Thứ tự cố định — thứ tự cột sai là lỗi im lặng (`hfml.ml.registry`).
-REDUCED_FEATURES: Final[tuple[str, ...]] = SHARED_FEATURES + tuple(
+#: Feature nằm trong `SHARED_FEATURES` nhưng bị loại khỏi bộ RÚT GỌN, kèm lý do.
+#:
+#: Khác `FULL_ONLY_FEATURES` (form không sinh ra được): chỗ này form **có** sinh
+#: ra, nhưng giá trị sinh ra lại vô nghĩa với model đã train trên Home Credit.
+REDUCED_EXCLUDED: Final[dict[str, str]] = {
+    "income_per_capita_ratio":
+        "Mẫu số là TRUNG VỊ THU NHẬP ĐẦU NGƯỜI CỦA HOME CREDIT, học lúc `fit`. "
+        "Tử số lúc inference lại là thu nhập đầu người của hộ Việt Nam — lệch "
+        "khoảng ba bậc. Đo thật: hộ 30 triệu/tháng cho tỉ lệ 1.200, hộ 400 "
+        "triệu cho 16.000, trong khi biên kẹp trên chỉ 9,00. MỌI hồ sơ Việt "
+        "Nam vì vậy nhận đúng một giá trị 9,00 — feature thành HẰNG SỐ lúc "
+        "chạy thật.\n"
+        "Tác hại không dừng ở 'phí một cột': lúc train nó CÓ phương sai nên "
+        "model đã học các nhánh chẻ trên nó, và lúc inference mọi nhánh đó rẽ "
+        "cố định một phía. Model chạy trên một cây đã bị cắt nhánh âm thầm.\n"
+        "PLAN §2.1b đã chốt nguyên tắc: chưa có mức tham chiếu của chính quần "
+        "thể đó thì để `NaN`, KHÔNG bịa số. Mà một cột `NaN` toàn phần thì "
+        "không phải feature — nên loại thẳng khỏi bộ deploy. Có số liệu GSO "
+        "cho Việt Nam thì đưa lại vào, đó mới là cách khôi phục đúng.\n"
+        "Bộ FULL vẫn giữ: ở đó cả tử lẫn mẫu đều là Home Credit nên tỉ lệ có "
+        "nghĩa, và bộ FULL không dùng để deploy.",
+}
+
+#: Bộ RÚT GỌN = feature dùng chung (trừ `REDUCED_EXCLUDED`) + phần sinh thêm
+#: mà form thu được. Thứ tự cố định — thứ tự cột sai là lỗi im lặng
+#: (`hfml.ml.registry`).
+REDUCED_FEATURES: Final[tuple[str, ...]] = tuple(
+    name for name in SHARED_FEATURES if name not in REDUCED_EXCLUDED
+) + tuple(
     name for name, _, _, in_reduced in ENGINEERED_FEATURES if in_reduced
 )
 
@@ -427,6 +453,48 @@ def absolute_money_columns(columns: list[str]) -> list[str]:
 # --------------------------------------------------------------------------
 # Pipeline dùng chung train ↔ inference
 # --------------------------------------------------------------------------
+#: Feature MIỄN kẹp biên — đuôi phân phối của chúng là TÍN HIỆU, không phải
+#: nhiễu đo đạc. Đo trên 307.511 hồ sơ `application_train.csv`:
+#:
+#:     bureau_overdue_loan_count    98,90% bằng 0 → p99,9 = 1, nên biên kẹp là
+#:         [0 · 1]. Ba mức 1 / 2 / ≥3 có tỉ lệ vỡ nợ 14,48% / 28,83% / 57,89%
+#:         (lift 1,79 / 3,57 / 7,17) bị ép hết về một. Tệ hơn: sau khi kẹp cột
+#:         này TRÙNG KHÍT 100% với `bureau_has_overdue`, mà bộ rút gọn lại TẮT
+#:         khử tương quan — hai cột y hệt nhau cùng vào model và chia đôi
+#:         importance của cùng một tín hiệu.
+#:     bureau_overdue_loan_share    Đã bị chặn trong [0 · 1] bởi chính công
+#:         thức (count ÷ loan_count) nên KHÔNG thể có ngoại lai. Biên [0 · 0,5]
+#:         cắt mất 173 hồ sơ có tỉ lệ vỡ nợ 26,59%.
+#:     bureau_overdue_income_ratio  Biên [0 · 0,1147] cắt mất 342 hồ sơ có tỉ
+#:         lệ vỡ nợ 39,47%.
+#:     bureau_has_overdue           Nhị phân sẵn, kẹp là phép đồng nhất. Để
+#:         vào đây cho đủ nhóm và để không ai tưởng nó bị bỏ sót.
+#:
+#: Vì sao miễn kẹp là AN TOÀN ở đây: bốn thuật toán của ML02 đều là cây và
+#: `scaling="none"`. Cây bất biến với biến đổi đơn điệu, nên một giá trị lớn
+#: chỉ rơi vào lá ngoài cùng — nó không kéo lệch scaler như
+#: `AMT_INCOME_TOTAL = 117.000.000` từng làm ở §4.3c. Cái giá của việc kẹp thì
+#: có thật và không khôi phục được, còn cái lợi thì bằng không.
+#:
+#: Vì sao KHÔNG dùng `log1p`: cây bất biến với mọi biến đổi ĐƠN ĐIỆU, nên
+#: `log1p(count)` cho ra đúng cùng một phép phân hoạch với `count`. Nó không
+#: sửa được gì — thứ phá tín hiệu là phép kẹp NHIỀU-VỀ-MỘT, không phải thang đo.
+#:     credit_term_implied          Biên `[8,33 · 37,92]`. Đây là feature MẠNH
+#:         NHẤT của bộ rút gọn (SHAP 0,373 — gấp 4 lần `dti`), và biên DƯỚI của
+#:         nó cắt đúng phần mang tin tốt: `AMT_CREDIT / AMT_ANNUITY` nhỏ nghĩa
+#:         là trả xong nhanh, tín hiệu rủi ro thấp rõ rệt. Mọi hồ sơ trả nhanh
+#:         hơn 8,33 năm bị gộp thành một giá trị, nên model không phân biệt nổi
+#:         người trả trong 3 năm với người trả trong 8 năm. Cùng lỗi với nhóm
+#:         overdue, chỉ khác là ở đầu dưới thay vì đầu trên.
+NO_CLIP_FEATURES: Final[tuple[str, ...]] = (
+    "bureau_overdue_loan_count",
+    "bureau_has_overdue",
+    "bureau_overdue_loan_share",
+    "bureau_overdue_income_ratio",
+    "credit_term_implied",
+)
+
+
 def build_feature_pipeline(
     *,
     feature_set: str = "reduced",
@@ -447,7 +515,8 @@ def build_feature_pipeline(
     if feature_set not in ("full", "reduced"):
         raise ValueError(f"feature_set không hợp lệ: {feature_set!r}")
 
-    defaults: dict = {"encoding": "ordinal", "scaling": "none"}
+    defaults: dict = {"encoding": "ordinal", "scaling": "none",
+                      "clip_exclude": NO_CLIP_FEATURES}
     if feature_set == "reduced":
         defaults["correlation_threshold"] = None
     defaults.update(preprocessing_kwargs)

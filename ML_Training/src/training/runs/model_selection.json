@@ -1,33 +1,33 @@
 {
-  "selected": "xgboost",
+  "selected": "bagging",
   "task": "ml01",
   "selection_metric": "macro_f1",
   "selection_basis": "tập validation (15%), fit trên tập train (70%)",
   "criterion": "macro-F1 cao nhất trên tập validation khi chấm 4 thuật toán trên cùng tập, cùng feature, cùng seed; baseline bị loại khỏi danh sách dự tuyển",
-  "validation_macro_f1": 0.91015785496003,
-  "runner_up": "bagging",
-  "margin": 0.008664481248277012,
+  "validation_macro_f1": 0.7530879645198246,
+  "runner_up": "xgboost",
+  "margin": 0.003503019343072511,
   "validation_ranking": [
     {
-      "algo": "xgboost",
-      "validation_macro_f1": 0.91015785496003
-    },
-    {
       "algo": "bagging",
-      "validation_macro_f1": 0.901493373711753
+      "validation_macro_f1": 0.7530879645198246
     },
     {
-      "algo": "random_forest",
-      "validation_macro_f1": 0.8510558009989376
+      "algo": "xgboost",
+      "validation_macro_f1": 0.7495849451767521
     },
     {
       "algo": "decision_tree",
-      "validation_macro_f1": 0.8486051495543119
+      "validation_macro_f1": 0.6784265144555892
+    },
+    {
+      "algo": "random_forest",
+      "validation_macro_f1": 0.6240628184018007
     }
   ],
   "supporting": {
-    "test_macro_f1": 0.915672145446731,
-    "gap_validation_minus_test": -0.005514290486701046,
+    "test_macro_f1": 0.7493541213834969,
+    "gap_validation_minus_test": 0.0037338431363277413,
     "note": "chỉ số test chỉ để đối chiếu, không dùng để chọn model"
   }
 }

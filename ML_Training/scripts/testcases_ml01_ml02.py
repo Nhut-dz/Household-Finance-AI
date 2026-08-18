@@ -56,9 +56,17 @@ from hfml.ml.ml01_recommendation.labeler import (
 from hfml.pipeline.orchestrator import analyze
 from hfml.rules import indicators as rule_indicators
 
-#: Ngưỡng nghiệp vụ của ML02, chốt ở F04 task 14. Đọc lại từ artifact lúc
-#: chạy — hằng số này chỉ để đối chiếu, lệch nhau là test báo.
-ML02_THRESHOLD_EXPECTED = 0.13029100000858307
+#: Ngưỡng nghiệp vụ ML02 KHÔNG được ghim cứng ở đây.
+#:
+#: Bản đầu ghim `0.13029100000858307` rồi khẳng định artifact phải bằng đúng
+#: số đó. Sai về mặt thiết kế test: ngưỡng là thứ task 14 suy ra từ dữ liệu,
+#: nên **mỗi lần train lại hợp lệ nó sẽ đổi** — và test đỏ lên dù không có gì
+#: hỏng. Ghim nó là biến một tham số được học thành một hằng số kỳ vọng.
+#:
+#: Điều thật sự cần kiểm là hai mệnh đề bất biến qua mọi lần train:
+#:     1. `predict()` cắt tại ngưỡng ĐÃ CHỐT TRONG ARTIFACT, không phải 0,5
+#:     2. ngưỡng đó khác 0,5 (tỉ lệ nền 8,07% thì 0,5 là vô nghĩa)
+ML02_THRESHOLD_MUST_NOT_BE = 0.5
 
 #: Sai số cho phép khi so hai xác suất phải bằng nhau (bất biến, tái lập).
 EPS = 1e-9
@@ -621,16 +629,18 @@ def _():
     p = part.get("probability")
     want = "HIGH_RISK" if p >= thr else "LOW_RISK"
     naive = "HIGH_RISK" if p >= 0.5 else "LOW_RISK"
-    ok = (abs(thr - ML02_THRESHOLD_EXPECTED) < 1e-9
-          and part.get("label") == want and thr != 0.5)
+    ok = (part.get("label") == want
+          and thr != ML02_THRESHOLD_MUST_NOT_BE
+          and 0.0 < thr < 0.5)
     return Result(
         "TC-ML02-04", "ml02",
-        "Ngưỡng nghiệp vụ 0,1303 được áp (KHÔNG dùng 0,5)", "Hợp đồng",
+        "Ngưỡng nghiệp vụ của artifact được áp (KHÔNG dùng 0,5)", "Hợp đồng",
         _ml02_inputs(payload, {"ngưỡng artifact": f"{thr:.6f}"}),
-        f"ngưỡng={ML02_THRESHOLD_EXPECTED:.6f} · nhãn cắt tại ngưỡng đó",
+        "nhãn cắt tại ngưỡng của artifact · ngưỡng ∈ (0 · 0,5)",
         f"ngưỡng={thr:.6f} · P={p:.4f} → {part.get('label')} "
         f"(nếu dùng 0,5 thì ra {naive})", ok,
-        "Tỉ lệ nền 8,07% nên ngưỡng 0,5 xếp gần như mọi hồ sơ vào LOW_RISK")
+        "Không ghim giá trị ngưỡng: task 14 suy nó từ dữ liệu nên mỗi lần "
+        "train lại hợp lệ nó sẽ đổi")
 
 
 @case("TC-ML02-05", "ml02", "Bất biến đơn vị tiền: nhân ×1000 không đổi kết quả",
@@ -652,15 +662,30 @@ def _():
         "Mệnh đề §2.1: mọi feature tiền của ML02 là TỈ LỆ nên bất biến đơn vị")
 
 
-@case("TC-ML02-06", "ml02", "Đơn điệu theo DTI: trả nợ 5tr → 20tr", "Đơn điệu")
+@case("TC-ML02-06", "ml02", "Đơn điệu theo DTI (kỳ hạn giữ nguyên)", "Đơn điệu")
 def _():
-    worse = with_loan(BASE_PROFILE, loan(**{**BASE_LOAN, "monthly_payment": 20e6}))
-    better = with_loan(BASE_PROFILE, loan(**{**BASE_LOAN, "monthly_payment": 5e6}))
+    # ⚠️ Bản đầu nâng DTI bằng cách tăng `monthly_payment` và giữ `loan_amount`
+    # — nhưng `credit_term_implied = loan_amount / (monthly_payment × 12)` nên
+    # phép đó đồng thời rút ngắn kỳ hạn, mà kỳ hạn là feature SHAP hạng 1
+    # (0,373) còn `dti` chỉ hạng 7 (0,093). Case cũ đo lẫn hai biến.
+    #
+    # Nay hạ THU NHẬP thay vì tăng khoản trả: `dti = payment / income` tăng,
+    # `credit_term_implied` bất động.
+    worse = with_loan(
+        household(income=15e6, expense=7e6, debt_payment=0, total_debt=200e6,
+                  savings=150e6, assets=["cash", "real_estate"]),
+        loan(**BASE_LOAN))
+    better = with_loan(
+        household(income=60e6, expense=27e6, debt_payment=0, total_debt=200e6,
+                  savings=150e6, assets=["cash", "real_estate"]),
+        loan(**BASE_LOAN))
     return ml02_pair_case(
-        "TC-ML02-06", "Đơn điệu theo DTI: trả nợ 5tr → 20tr", "Đơn điệu",
+        "TC-ML02-06", "Đơn điệu theo DTI (kỳ hạn giữ nguyên)", "Đơn điệu",
         worse, better,
-        "trả 20.000.000/tháng (DTI 0,50)", "trả 5.000.000/tháng (DTI 0,125)",
-        "Chỉ đổi `monthly_payment`; DTI là feature quan trọng nhất của bộ rút gọn")
+        "thu 15tr, trả 10tr/tháng (DTI 0,67)",
+        "thu 60tr, trả 10tr/tháng (DTI 0,17)",
+        "Chỉ đổi thu nhập nên `credit_term_implied` không đổi — chênh lệch quy "
+        "được về đúng `dti`")
 
 
 @case("TC-ML02-07", "ml02", "Đơn điệu theo số tiền vay: 500tr → 2 tỷ", "Đơn điệu")

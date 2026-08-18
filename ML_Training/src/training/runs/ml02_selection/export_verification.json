@@ -3,7 +3,7 @@
   "proba_matches": true,
   "max_proba_diff": 0.0,
   "feature_names_match": true,
-  "n_features": 17,
+  "n_features": 16,
   "threshold_applied": true,
   "threshold_is_not_half": true,
   "labels_returned": [

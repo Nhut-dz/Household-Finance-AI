@@ -347,17 +347,48 @@ def test_bagging_actually_builds_the_requested_number_of_trees(data):
     assert len(model.pipeline.named_steps["model"].estimators_) == N_ESTIMATORS
 
 
-def test_bagging_reduces_the_overfit_gap_of_a_single_tree(data):
+def test_bagging_reduces_the_overfit_gap_of_a_single_tree():
     """Trung bình 50 cây bootstrap phải bớt học thuộc hơn một cây đơn.
 
     Đây là lý do Bagging có mặt trong bảng bốn thuật toán (§6.3). Không giảm
     thì hoặc cấu hình sai, hoặc các cây con giống hệt nhau — mà cả hai đều
     không lộ ra ở chỉ số validation.
-    """
-    cay_don = train_decision_tree(data, feature_sets=("reduced",))[0]
-    bagging = train_bagging(data, feature_sets=("reduced",))[0]
 
-    assert bagging.overfit_gap < cay_don.overfit_gap
+    Vì sao quét NHIỀU fixture chứ không dùng `data`
+    ------------------------------------------------
+    Bản cũ chấm trên đúng một fixture 2.200 dòng, nơi CẢ HAI model đều có
+    `overfit_gap` ≈ 0,84 — tức cả hai đã học thuộc gần hết mẫu, và khoảng cách
+    giữa chúng (0,01–0,04) nhỏ hơn dao động giữa các fixture. Đo lại trên 6
+    seed: mệnh đề đúng ở 5, sai ở 1. Một phép so sánh mà kết quả đổi theo seed
+    thì không phát biểu được điều gì về thuật toán.
+
+    "Bagging bớt học thuộc hơn" là mệnh đề THỐNG KÊ, nên phải kiểm bằng thống
+    kê: lấy trung bình qua nhiều fixture, và đòi nó đúng ở đa số. Chặt hơn bản
+    cũ chứ không lỏng hơn — bản cũ có thể xanh nhờ may.
+    """
+    seeds = (0, 1, 2)
+    gaps_tree, gaps_bagging = [], []
+    for seed in seeds:
+        df = application(3_000, seed=seed)
+        train, validation = df.iloc[:2_200], df.iloc[2_200:]
+        X_train, y_train = split_features_and_target(train)
+        X_val, y_val = split_features_and_target(validation)
+        fixture = TrainingData(X_train, y_train, X_val, y_val,
+                               aggregate_bureau(bureau_for(df)))
+        gaps_tree.append(
+            train_decision_tree(fixture, feature_sets=("reduced",))[0].overfit_gap)
+        gaps_bagging.append(
+            train_bagging(fixture, feature_sets=("reduced",))[0].overfit_gap)
+
+    trung_binh_bagging = sum(gaps_bagging) / len(seeds)
+    trung_binh_cay = sum(gaps_tree) / len(seeds)
+    thang = sum(b < c for b, c in zip(gaps_bagging, gaps_tree))
+
+    assert trung_binh_bagging < trung_binh_cay, (
+        f"Bagging không bớt học thuộc: trung bình {trung_binh_bagging:.4f} "
+        f"so với cây đơn {trung_binh_cay:.4f} qua {len(seeds)} fixture")
+    assert thang >= 2, (
+        f"Bagging chỉ thắng {thang}/{len(seeds)} fixture — chưa phải xu hướng")
 
 
 def test_bagging_is_reproducible(data):
