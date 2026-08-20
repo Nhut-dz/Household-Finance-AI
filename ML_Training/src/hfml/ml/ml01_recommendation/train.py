@@ -1,31 +1,36 @@
 """Train & đánh giá ML01 — 4 thuật toán + baseline (F03 task 5–15, PLAN.md §6.3).
 
-Ba tập, ba vai trò khác nhau (task 5)
--------------------------------------
-    train  80%   CV 5-fold trên đây để SO SÁNH 4 thuật toán và CHỌN model
-    test   20%   khoá lại, chấm ĐÚNG MỘT LẦN cho model đã chọn
+Ba tập, ba vai trò khác nhau (task 5 — chốt lại 14/08/2026)
+-----------------------------------------------------------
+    train       70%   fit model
+    validation  15%   SO SÁNH 4 thuật toán và CHỌN model, tinh chỉnh nếu cần
+    test        15%   khoá lại, chấm ĐÚNG MỘT LẦN ở bước đánh giá cuối
 
-Vì sao không thể gộp: nếu chọn model bằng chính con số đem đi báo cáo thì
-con số đó lạc quan có hệ thống — nó là điểm cao nhất trong 4 lần thử, và
-"cao nhất trong nhiều lần thử" luôn lệch lên. Ở đây độ lệch nhỏ (4 ứng viên,
-khoảng cách rõ), nhưng cấu trúc phải đúng thì mới trả lời được "tập test
-đâu?".
+**Không dùng K-Fold Cross-Validation.** Bản trước của file này chạy CV 5-fold
+bên trong tập train và coi mỗi fold là validation. Phương pháp đã đổi sang
+Train/Validation/Test đơn giản cho đúng phạm vi đồ án, và CV bị bỏ hẳn chứ
+không chạy song song — hai căn cứ chọn model cùng tồn tại thì đến lúc chúng
+bất đồng sẽ không có quy tắc nào phân xử.
 
-`StratifiedKFold` bên trong tập train đóng vai VALIDATION — không cần cắt
-thêm một tập validation cố định, vì mỗi fold đã luân phiên làm việc đó, và
-với 4 lớp thì CV cho ước lượng ổn định hơn một lần cắt duy nhất.
+Cái mất khi bỏ CV, nói ra để đọc số cho đúng: mỗi chỉ số bây giờ là MỘT điểm
+đo trên 3.000 hộ, không phải trung bình của 5 lần với độ lệch kèm theo. Không
+còn `macro_f1_std`, nên một khoảng chênh vài phần nghìn giữa hai model không
+còn cách nào quy chiếu về độ nhiễu — đọc nó như hiệu số trần trụi.
+
+Vì sao vẫn phải tách test khỏi validation: nếu chọn model bằng chính con số
+đem đi báo cáo thì con số đó lạc quan có hệ thống — nó là điểm cao nhất trong
+4 lần thử, và "cao nhất trong nhiều lần thử" luôn lệch lên.
 
 Model export ra artifact được fit trên tập TRAIN, không phải toàn bộ dữ liệu.
-Đổi lại 20% dữ liệu, ta có được điều quan trọng hơn: chỉ số trong
+Đổi lại 30% dữ liệu, ta có được điều quan trọng hơn: chỉ số trong
 `metadata.json` mô tả **đúng cái model nằm trong file đó**. Fit lại trên 100%
 rồi gắn chỉ số đo từ model khác là một sự lệch nhỏ nhưng không giải thích nổi.
 
 Điều kiện để bảng so sánh có nghĩa
 ----------------------------------
 Bốn thuật toán phải chạy trên **cùng split, cùng feature, cùng seed**. Ở đây
-điều đó không phải lời hứa mà là cấu trúc code: `_materialise_folds()` sinh
-danh sách fold MỘT LẦN rồi mọi thuật toán nhận đúng danh sách ấy. Không chỗ
-nào gọi `StratifiedKFold` lần thứ hai.
+điều đó không phải lời hứa mà là cấu trúc code: `split_train_val_test()` cắt
+một lần theo `seed`, và mọi thuật toán nhận đúng `X_train` / `X_val` đó.
 
 Nếu mỗi thuật toán tự chia dữ liệu thì chênh lệch macro-F1 giữa chúng lẫn với
 chênh lệch giữa các cách chia — và không cách nào tách hai thứ đó ra nữa.
@@ -58,7 +63,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import BaggingClassifier, RandomForestClassifier
-from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 
@@ -69,7 +74,6 @@ from hfml.logger import get_logger, log_run_context
 from hfml.ml.estimator import PipelineClassifier
 from hfml.ml.evaluation.metrics import (
     SELECTION_METRIC,
-    aggregate_folds,
     classification_metrics,
     confusion_table,
     per_class_table,
@@ -222,17 +226,13 @@ def split_train_val_test(
 ):
     """Chia ba tập của task 5 (chốt lại 12/08/2026): 70% / 15% / 15%.
 
-        train       70%   `StratifiedKFold` 5-fold chạy trên đây — vẫn là
-                          căn cứ CHỌN MODEL, và là chỗ duy nhất sinh ra σ
-                          giữa các fold mà task 14 dùng để đo cách biệt
-        validation  15%   chấm một lần để đối chiếu với CV; KHÔNG tham gia
-                          chọn model
+        train       70%   fit model
+        validation  15%   **căn cứ CHỌN MODEL** — so macro-F1 giữa 4 thuật
+                          toán, và là nơi tinh chỉnh siêu tham số nếu cần
         test        15%   khoá lại, CHỈ dùng cho đánh giá cuối
 
-    CV 5-fold được giữ nguyên chứ không bị validation thay thế. Hai thứ trả
-    lời hai câu khác nhau: CV cho biết chỉ số dao động bao nhiêu giữa các lát
-    cắt (nên mới có σ), validation cho một con số trên tập chưa từng fit. Bỏ
-    CV thì tiêu chí "hơn á quân bao nhiêu lần σ" của task 14 mất căn cứ.
+    Không dùng K-Fold Cross-Validation. Mỗi thuật toán được fit đúng một lần
+    trên tập train và chấm đúng một lần trên tập validation.
 
     Cắt hai lần chứ không một lần: lần đầu tách `test`, lần sau tách
     `validation` ra khỏi phần còn lại. Tỉ lệ lần hai phải quy đổi theo phần
@@ -292,63 +292,74 @@ def split_train_test(
     return X_train, X_test, y_train, y_test
 
 
-def _materialise_folds(X: pd.DataFrame, y: pd.Series, n_splits: int, seed: int):
-    """Sinh fold MỘT LẦN để mọi thuật toán dùng chung — xem docstring đầu file."""
-    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    return list(splitter.split(X, y))
-
-
 # ------------------------------------------------------------ đánh giá
 
-def cross_validate(
-    X: pd.DataFrame,
-    y: pd.Series,
+def fit_on_train(
+    algo: str,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    seed: int,
+) -> tuple[PipelineClassifier, float]:
+    """Fit một thuật toán trên tập train. Trả `(model, số giây)`.
+
+    Chỗ duy nhất dựng model trong file này, để bốn task train và bước đánh giá
+    không thể lệch nhau về pipeline tiền xử lý hay cách truyền seed.
+    """
+    started = time.perf_counter()
+    model = PipelineClassifier(
+        task=TASK, algo=algo,
+        estimator=ALGORITHMS[algo](seed),
+        preprocessing=build_preprocessing_pipeline())
+    model.fit(X_train, y_train)
+    return model, round(time.perf_counter() - started, 2)
+
+
+def evaluate_on_validation(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
     algorithms: dict[str, Callable[[int], BaseEstimator]] | None = None,
-    n_splits: int | None = None,
     seed: int | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
-    """Chạy CV cho từng thuật toán trên cùng bộ fold.
+    """Fit từng thuật toán trên train rồi chấm trên **tập validation**.
 
-    Trả về `(bảng so sánh, dự đoán out-of-fold)`. Dự đoán OOF cho phép dựng
-    confusion matrix và bảng per-class trên TOÀN bộ dữ liệu mà mỗi dòng vẫn
-    được dự đoán bởi model chưa từng thấy nó — trung thực hơn hẳn việc fit
-    lại rồi chấm trên chính tập train.
+    Đây là căn cứ SO SÁNH và CHỌN MODEL của ML01 (giao thức chốt 14/08/2026).
+    Trước đó bước này là `cross_validate()` 5-fold; phương pháp đã đổi sang
+    Train/Validation/Test đơn giản theo yêu cầu phạm vi đồ án, và CV bị bỏ hẳn
+    chứ không chạy song song — hai căn cứ chọn model cùng tồn tại thì đến lúc
+    chúng bất đồng sẽ không có quy tắc nào phân xử.
+
+    Hệ quả cần biết: không còn σ giữa các fold, nên mọi chỗ trước đây đọc
+    `macro_f1_std` để nói "hơn á quân bao nhiêu lần σ" đều đã được viết lại.
+
+    Cả bốn thuật toán fit trên cùng `X_train` và chấm trên cùng `X_val`, nên
+    chênh lệch giữa chúng là chênh lệch của model chứ không phải của dữ liệu.
+
+    Trả `(bảng chỉ số, dự đoán trên validation)`. Phần dự đoán để dựng confusion
+    matrix và bảng per-class mà không phải fit lại.
     """
     algorithms = algorithms or ALGORITHMS
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
-
     labels = [g.value for g in ORDERED_GROUPS]
-    folds = _materialise_folds(X, y, n_splits, seed)
-    preprocessing = build_preprocessing_pipeline()
 
     rows: list[dict] = []
-    oof: dict[str, pd.Series] = {}
+    predictions: dict[str, pd.Series] = {}
 
-    for algo, factory in algorithms.items():
-        fold_metrics: list[dict[str, float]] = []
-        predictions = pd.Series(index=X.index, dtype=object)
-        started = time.perf_counter()
+    for algo in algorithms:
+        model, seconds = fit_on_train(algo, X_train, y_train, seed)
+        predicted = model.predict(X_val)
 
-        for train_idx, valid_idx in folds:
-            model = PipelineClassifier(
-                task=TASK, algo=algo,
-                estimator=factory(seed), preprocessing=preprocessing)
-            model.fit(X.iloc[train_idx], y.iloc[train_idx])
+        predictions[algo] = pd.Series(predicted, index=X_val.index, name=algo)
+        rows.append({
+            "algo": algo,
+            **classification_metrics(y_val, predicted, labels=labels),
+            "fit_seconds": seconds,
+        })
+        log.info("%-16s validation macro-F1 %.4f · accuracy %.4f (%.1fs)",
+                 algo, rows[-1]["macro_f1"], rows[-1]["accuracy"], seconds)
 
-            predicted = model.predict(X.iloc[valid_idx])
-            predictions.iloc[valid_idx] = predicted
-            fold_metrics.append(classification_metrics(
-                y.iloc[valid_idx], predicted, labels=labels))
-
-        rows.append({"algo": algo, **aggregate_folds(fold_metrics),
-                     "fit_seconds": round(time.perf_counter() - started, 2)})
-        oof[algo] = predictions
-        log.info("%-16s macro-F1 %.4f · accuracy %.4f (%.1fs)",
-                 algo, rows[-1]["macro_f1"], rows[-1]["accuracy"],
-                 rows[-1]["fit_seconds"])
-
-    return pd.DataFrame(rows), oof
+    return pd.DataFrame(rows), predictions
 
 
 # ------------------------------------------- task 7 — Decision Tree
@@ -356,7 +367,6 @@ def cross_validate(
 def train_decision_tree(
     params: PopulationParams | None = None,
     seed: int | None = None,
-    n_splits: int | None = None,
     test_size: float | None = None,
     save: bool = True,
     runs_dir=None,
@@ -365,18 +375,19 @@ def train_decision_tree(
 
     Trình tự:
 
-        1. tách 80/20 bằng `split_train_test()` (task 5)
-        2. CV 5-fold **chỉ trên tập train**, chỉ chạy Decision Tree
-        3. fit cây cuối cùng trên **toàn bộ** tập train
+        1. tách 70/15/15 bằng `split_train_val_test()` (task 5)
+        2. fit cây trên **toàn bộ tập train** (70%)
+        3. chấm trên **tập validation** (15%) — đây là chỉ số đem đi so sánh
         4. ghi artifact + metadata vào `src/training/runs/`
 
     Tập test cố ý **không nằm trong giá trị trả về**. Task 7 không được dùng
     nó, và cách chắc chắn nhất để không dùng nhầm là không đưa nó ra khỏi
     hàm — tách lại bằng cùng `seed` thì luôn ra đúng tập cũ, nên không mất gì.
 
-    Bước 3 không thừa so với bước 2: CV cho *ước lượng* chỉ số bằng 5 cây,
-    mỗi cây học từ 4/5 tập train. Cây đem dùng phải học từ cả 5/5, và đó là
-    một cây khác với cả năm cây kia.
+    Trước 14/08/2026 bước 2–3 là CV 5-fold trên tập train. Phương pháp đã đổi
+    sang Train/Validation/Test theo phạm vi đồ án: model được fit đúng MỘT lần
+    trên 70% và chấm đúng MỘT lần trên 15% validation. Không còn σ giữa các
+    fold, nên chỉ số ở đây là một điểm đo chứ không phải trung bình có độ lệch.
 
     Bước 4 được bổ sung sau: task 7 vốn được giao trước khi chốt quy ước ghi
     output, nên ba thuật toán sau có artifact còn cây đơn thì không. Việc
@@ -387,24 +398,22 @@ def train_decision_tree(
     giữa chúng là bằng chứng cây đơn mọc tự do tới đâu (PLAN.md §6.3).
     """
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
     test_size = CONFIG.training["test_size"] if test_size is None else test_size
     runs_dir = CONFIG.paths.runs if runs_dir is None else runs_dir
     log_run_context(log)
 
     X, y = build_training_data(params, seed=seed)
-    X_train, _, y_train, _ = split_train_test(X, y, test_size, seed)
+    X_train, X_val, _, y_train, y_val, _ = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
 
-    comparison, oof = cross_validate(
-        X_train, y_train,
-        algorithms={DECISION_TREE: ALGORITHMS[DECISION_TREE]},
-        n_splits=n_splits, seed=seed)
+    comparison, validation_predictions = evaluate_on_validation(
+        X_train, y_train, X_val, y_val,
+        algorithms={DECISION_TREE: ALGORITHMS[DECISION_TREE]}, seed=seed)
 
-    model = PipelineClassifier(
-        task=TASK, algo=DECISION_TREE,
-        estimator=ALGORITHMS[DECISION_TREE](seed),
-        preprocessing=build_preprocessing_pipeline())
-    model.fit(X_train, y_train)
+    # `evaluate_on_validation()` đã fit đúng model này trên cùng train + seed.
+    # Fit lại ở đây là lãng phí và mở đường cho hai bản khác nhau: bản sinh ra
+    # chỉ số và bản đem lưu. Lấy thẳng bản đã fit.
+    model, _ = fit_on_train(DECISION_TREE, X_train, y_train, seed)
 
     estimator = model.pipeline_.named_steps["model"]
     tree = estimator.tree_
@@ -417,9 +426,9 @@ def train_decision_tree(
         "n_leaves": int(estimator.get_n_leaves()),
         "min_samples_split": int(estimator.min_samples_split),
         "min_samples_leaf": int(estimator.min_samples_leaf),
-        "n_splits": int(n_splits),
         "test_size": float(test_size),
         "n_train_rows": int(len(X_train)),
+        "n_validation_rows": int(len(X_val)),
     }
     log.info("Cây cuối: %d dòng train · %d nút · sâu %d",
              int(tree.n_node_samples[0]), run_config["n_nodes"],
@@ -428,30 +437,29 @@ def train_decision_tree(
     result = {
         "X_train": X_train,
         "y_train": y_train,
-        "cv_metrics": comparison.iloc[0].to_dict(),
+        "validation_metrics": comparison.iloc[0].to_dict(),
         "config": run_config,
-        "oof": oof[DECISION_TREE],
+        "validation_predictions": validation_predictions[DECISION_TREE],
         "model": model,
     }
 
     if save:
-        cv_metrics = comparison.iloc[0].to_dict()
-        cv_metrics.pop("algo", None)
+        validation_metrics = comparison.iloc[0].to_dict()
+        validation_metrics.pop("algo", None)
         result["artifact"] = save_model(
-            model, metrics={"cv": cv_metrics},
+            model, metrics={"validation": validation_metrics},
             directory=runs_dir, extra={"config": run_config})
 
-        # Task 7 từng bỏ qua bước này, nên dòng CV của decision_tree chỉ xuất
-        # hiện khi task 12 backfill. Hậu quả im lặng: đổi cấu hình split rồi
-        # train lại, ba model kia có dòng mới còn decision_tree vẫn giữ dòng
-        # backfill CŨ — bảng so sánh trộn hai cỡ dữ liệu mà không báo gì.
+        # Task 7 từng bỏ qua bước này, nên dòng chỉ số của decision_tree chỉ
+        # xuất hiện khi task 12 backfill. Hậu quả im lặng: đổi cấu hình split
+        # rồi train lại, ba model kia có dòng mới còn decision_tree vẫn giữ
+        # dòng cũ — bảng so sánh trộn hai cỡ dữ liệu mà không báo gì.
         logged = comparison.copy()
-        logged["split"] = "cv_train"
+        logged["split"] = "validation"
         logged.insert(0, "task", TASK)
         logged.insert(2, "feature_set", "default")
         logged.insert(3, "random_seed", seed)
-        logged.insert(4, "n_rows", len(X_train))
-        logged.insert(5, "n_splits", n_splits)
+        logged.insert(4, "n_rows", len(X_val))
         logged["note"] = "task7 decision_tree"
         result["results_csv"] = append_results(logged, runs_dir / "results.csv")
 
@@ -463,16 +471,15 @@ def train_decision_tree(
 def train_bagging(
     params: PopulationParams | None = None,
     seed: int | None = None,
-    n_splits: int | None = None,
     test_size: float | None = None,
     save: bool = True,
     runs_dir=None,
 ) -> dict:
     """Task 8 — train `BaggingClassifier` theo giao thức chốt ở task 5.
 
-    Cùng trình tự với task 7: tách 80/20 → CV 5-fold **chỉ trên train** →
-    fit model cuối trên **toàn bộ** train. Tập test không được trả ra khỏi
-    hàm, nên task này không thể lỡ dùng nó.
+    Cùng trình tự với task 7: tách 70/15/15 → fit trên train (70%) → chấm trên
+    validation (15%). Tập test không được trả ra khỏi hàm, nên task này không
+    thể lỡ dùng nó.
 
     Khác task 7 ở chỗ có ghi output: theo quy ước kiến trúc, metric, cấu hình
     và model artifact của một lần train nằm ở `src/training/runs/`
@@ -483,24 +490,19 @@ def train_bagging(
     con số đó không dựng lại được.
     """
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
     test_size = CONFIG.training["test_size"] if test_size is None else test_size
     runs_dir = CONFIG.paths.runs if runs_dir is None else runs_dir
     log_run_context(log)
 
     X, y = build_training_data(params, seed=seed)
-    X_train, _, y_train, _ = split_train_test(X, y, test_size, seed)
+    X_train, X_val, _, y_train, y_val, _ = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
 
-    comparison, oof = cross_validate(
-        X_train, y_train,
-        algorithms={BAGGING: ALGORITHMS[BAGGING]},
-        n_splits=n_splits, seed=seed)
+    comparison, validation_predictions = evaluate_on_validation(
+        X_train, y_train, X_val, y_val,
+        algorithms={BAGGING: ALGORITHMS[BAGGING]}, seed=seed)
 
-    model = PipelineClassifier(
-        task=TASK, algo=BAGGING,
-        estimator=ALGORITHMS[BAGGING](seed),
-        preprocessing=build_preprocessing_pipeline())
-    model.fit(X_train, y_train)
+    model, _ = fit_on_train(BAGGING, X_train, y_train, seed)
 
     estimator = model.pipeline_.named_steps["model"]
     run_config = {
@@ -508,34 +510,33 @@ def train_bagging(
         "base_estimator": "DecisionTreeClassifier",
         "n_estimators": int(estimator.n_estimators),
         "bootstrap": bool(estimator.bootstrap),
-        "n_splits": int(n_splits),
         "test_size": float(test_size),
         "n_train_rows": int(len(X_train)),
+        "n_validation_rows": int(len(X_val)),
     }
-    cv_metrics = comparison.iloc[0].to_dict()
-    cv_metrics.pop("algo", None)
+    validation_metrics = comparison.iloc[0].to_dict()
+    validation_metrics.pop("algo", None)
 
     result = {
         "X_train": X_train,
         "y_train": y_train,
-        "cv_metrics": comparison.iloc[0].to_dict(),
-        "oof": oof[BAGGING],
+        "validation_metrics": comparison.iloc[0].to_dict(),
+        "validation_predictions": validation_predictions[BAGGING],
         "model": model,
         "config": run_config,
     }
 
     if save:
         result["artifact"] = save_model(
-            model, metrics={"cv": cv_metrics},
+            model, metrics={"validation": validation_metrics},
             directory=runs_dir, extra={"config": run_config})
 
         logged = comparison.copy()
-        logged["split"] = "cv_train"
+        logged["split"] = "validation"
         logged.insert(0, "task", TASK)
         logged.insert(2, "feature_set", "default")
         logged.insert(3, "random_seed", seed)
-        logged.insert(4, "n_rows", len(X_train))
-        logged.insert(5, "n_splits", n_splits)
+        logged.insert(4, "n_rows", len(X_val))
         logged["note"] = "task8 bagging"
         result["results_csv"] = append_results(logged, runs_dir / "results.csv")
 
@@ -547,15 +548,14 @@ def train_bagging(
 def train_random_forest(
     params: PopulationParams | None = None,
     seed: int | None = None,
-    n_splits: int | None = None,
     test_size: float | None = None,
     save: bool = True,
     runs_dir=None,
 ) -> dict:
     """Task 9 — train `RandomForestClassifier` theo giao thức chốt ở task 5.
 
-    Cùng trình tự task 7 và 8: tách 80/20 → CV 5-fold **chỉ trên train** →
-    fit model cuối trên **toàn bộ** train. Tập test không trả ra khỏi hàm.
+    Cùng trình tự task 7 và 8: tách 70/15/15 → fit trên train (70%) → chấm
+    trên validation (15%). Tập test không trả ra khỏi hàm.
 
     Cấu hình ghi lại thêm `max_features` — với RandomForest đó là tham số
     phân biệt nó với Bagging, nên bỏ nó khỏi bản ghi thì lần chạy này không
@@ -563,24 +563,19 @@ def train_random_forest(
     lát cắt được nhìn), vì đó mới là con số đọc hiểu được.
     """
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
     test_size = CONFIG.training["test_size"] if test_size is None else test_size
     runs_dir = CONFIG.paths.runs if runs_dir is None else runs_dir
     log_run_context(log)
 
     X, y = build_training_data(params, seed=seed)
-    X_train, _, y_train, _ = split_train_test(X, y, test_size, seed)
+    X_train, X_val, _, y_train, y_val, _ = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
 
-    comparison, oof = cross_validate(
-        X_train, y_train,
-        algorithms={RANDOM_FOREST: ALGORITHMS[RANDOM_FOREST]},
-        n_splits=n_splits, seed=seed)
+    comparison, validation_predictions = evaluate_on_validation(
+        X_train, y_train, X_val, y_val,
+        algorithms={RANDOM_FOREST: ALGORITHMS[RANDOM_FOREST]}, seed=seed)
 
-    model = PipelineClassifier(
-        task=TASK, algo=RANDOM_FOREST,
-        estimator=ALGORITHMS[RANDOM_FOREST](seed),
-        preprocessing=build_preprocessing_pipeline())
-    model.fit(X_train, y_train)
+    model, _ = fit_on_train(RANDOM_FOREST, X_train, y_train, seed)
 
     estimator = model.pipeline_.named_steps["model"]
     run_config = {
@@ -593,12 +588,12 @@ def train_random_forest(
         "max_features_resolved": int(estimator.estimators_[0].max_features_),
         "n_features_in": int(estimator.n_features_in_),
         "bootstrap": bool(estimator.bootstrap),
-        "n_splits": int(n_splits),
         "test_size": float(test_size),
         "n_train_rows": int(len(X_train)),
+        "n_validation_rows": int(len(X_val)),
     }
-    cv_metrics = comparison.iloc[0].to_dict()
-    cv_metrics.pop("algo", None)
+    validation_metrics = comparison.iloc[0].to_dict()
+    validation_metrics.pop("algo", None)
 
     log.info("Rừng cuối: %d cây · mỗi lát cắt nhìn %d/%d cột",
              run_config["n_estimators"], run_config["max_features_resolved"],
@@ -607,24 +602,23 @@ def train_random_forest(
     result = {
         "X_train": X_train,
         "y_train": y_train,
-        "cv_metrics": comparison.iloc[0].to_dict(),
-        "oof": oof[RANDOM_FOREST],
+        "validation_metrics": comparison.iloc[0].to_dict(),
+        "validation_predictions": validation_predictions[RANDOM_FOREST],
         "model": model,
         "config": run_config,
     }
 
     if save:
         result["artifact"] = save_model(
-            model, metrics={"cv": cv_metrics},
+            model, metrics={"validation": validation_metrics},
             directory=runs_dir, extra={"config": run_config})
 
         logged = comparison.copy()
-        logged["split"] = "cv_train"
+        logged["split"] = "validation"
         logged.insert(0, "task", TASK)
         logged.insert(2, "feature_set", "default")
         logged.insert(3, "random_seed", seed)
-        logged.insert(4, "n_rows", len(X_train))
-        logged.insert(5, "n_splits", n_splits)
+        logged.insert(4, "n_rows", len(X_val))
         logged["note"] = "task9 random_forest"
         result["results_csv"] = append_results(logged, runs_dir / "results.csv")
 
@@ -636,15 +630,14 @@ def train_random_forest(
 def train_xgboost(
     params: PopulationParams | None = None,
     seed: int | None = None,
-    n_splits: int | None = None,
     test_size: float | None = None,
     save: bool = True,
     runs_dir=None,
 ) -> dict:
     """Task 10 — train `XGBClassifier` theo giao thức chốt ở task 5.
 
-    Cùng trình tự task 7–9: tách 80/20 → CV 5-fold **chỉ trên train** → fit
-    model cuối trên **toàn bộ** train. Tập test không trả ra khỏi hàm.
+    Cùng trình tự task 7–9: tách 70/15/15 → fit trên train (70%) → chấm trên
+    validation (15%). Tập test không trả ra khỏi hàm.
 
     Cấu hình ghi lại đầy đủ hơn ba thuật toán trước vì XGBoost có nhiều siêu
     tham số cùng ảnh hưởng kết quả (`learning_rate` × `n_estimators` bù trừ
@@ -656,24 +649,19 @@ def train_xgboost(
     mà thấy "300" cạnh "100 cây" của Bagging/RF sẽ hiểu sai độ phức tạp.
     """
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
     test_size = CONFIG.training["test_size"] if test_size is None else test_size
     runs_dir = CONFIG.paths.runs if runs_dir is None else runs_dir
     log_run_context(log)
 
     X, y = build_training_data(params, seed=seed)
-    X_train, _, y_train, _ = split_train_test(X, y, test_size, seed)
+    X_train, X_val, _, y_train, y_val, _ = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
 
-    comparison, oof = cross_validate(
-        X_train, y_train,
-        algorithms={XGBOOST: ALGORITHMS[XGBOOST]},
-        n_splits=n_splits, seed=seed)
+    comparison, validation_predictions = evaluate_on_validation(
+        X_train, y_train, X_val, y_val,
+        algorithms={XGBOOST: ALGORITHMS[XGBOOST]}, seed=seed)
 
-    model = PipelineClassifier(
-        task=TASK, algo=XGBOOST,
-        estimator=ALGORITHMS[XGBOOST](seed),
-        preprocessing=build_preprocessing_pipeline())
-    model.fit(X_train, y_train)
+    model, _ = fit_on_train(XGBOOST, X_train, y_train, seed)
 
     estimator = model.pipeline_.named_steps["model"]
     booster = estimator.get_booster()
@@ -690,12 +678,12 @@ def train_xgboost(
         "colsample_bytree": float(estimator.colsample_bytree),
         "tree_method": str(estimator.tree_method),
         "eval_metric": str(estimator.eval_metric),
-        "n_splits": int(n_splits),
         "test_size": float(test_size),
         "n_train_rows": int(len(X_train)),
+        "n_validation_rows": int(len(X_val)),
     }
-    cv_metrics = comparison.iloc[0].to_dict()
-    cv_metrics.pop("algo", None)
+    validation_metrics = comparison.iloc[0].to_dict()
+    validation_metrics.pop("algo", None)
 
     log.info("XGBoost cuối: %d vòng × %d lớp = %d cây · sâu %d",
              rounds, run_config["n_classes"], run_config["n_trees"],
@@ -704,24 +692,23 @@ def train_xgboost(
     result = {
         "X_train": X_train,
         "y_train": y_train,
-        "cv_metrics": comparison.iloc[0].to_dict(),
-        "oof": oof[XGBOOST],
+        "validation_metrics": comparison.iloc[0].to_dict(),
+        "validation_predictions": validation_predictions[XGBOOST],
         "model": model,
         "config": run_config,
     }
 
     if save:
         result["artifact"] = save_model(
-            model, metrics={"cv": cv_metrics},
+            model, metrics={"validation": validation_metrics},
             directory=runs_dir, extra={"config": run_config})
 
         logged = comparison.copy()
-        logged["split"] = "cv_train"
+        logged["split"] = "validation"
         logged.insert(0, "task", TASK)
         logged.insert(2, "feature_set", "default")
         logged.insert(3, "random_seed", seed)
-        logged.insert(4, "n_rows", len(X_train))
-        logged.insert(5, "n_splits", n_splits)
+        logged.insert(4, "n_rows", len(X_val))
         logged["note"] = "task10 xgboost"
         result["results_csv"] = append_results(logged, runs_dir / "results.csv")
 
@@ -743,17 +730,17 @@ def evaluate_on_test(
     save: bool = True,
     runs_dir=None,
 ) -> dict:
-    """Task 11 — chấm 4 thuật toán trên **cùng một** tập validation và test.
+    """Task 11 — chấm 4 thuật toán trên **cùng một** tập test 15%.
 
-    Mỗi model được fit trên tập train (70%) rồi dự đoán hai tập giữ riêng:
-    validation (15%) và test (15%). Cả bốn thuật toán dùng đúng cùng hai tập
-    đó — chúng đến từ `split_train_val_test()` với cùng `seed` — nên chênh
-    lệch giữa các model là chênh lệch của model, không phải của dữ liệu.
+    Mỗi model được fit trên tập train (70%) rồi dự đoán tập test đúng một lần.
+    Cả bốn thuật toán dùng đúng cùng tập test — nó đến từ
+    `split_train_val_test()` với cùng `seed` — nên chênh lệch giữa các model là
+    chênh lệch của model, không phải của dữ liệu.
 
-    Chấm validation ở đây thuần tuý để ĐỐI CHIẾU. Nó không tham gia chọn
-    model: task 14 chỉ đọc chỉ số CV. Có ba con số cho cùng một model (CV,
-    validation, test) thì lệch bất thường giữa chúng lộ ra ngay, thay vì phải
-    tin vào một phép đo duy nhất.
+    Hàm này **không chấm validation**: chỉ số validation do bốn hàm `train_*`
+    sinh ra và đã nằm trong `results.csv`. Chấm lại ở đây sẽ ghi dòng
+    `split="validation"` thứ hai cho cùng một thuật toán, và bảng so sánh lấy
+    "dòng mới nhất" sẽ đọc phải bản không có `fit_seconds`.
 
     Hàm này **chỉ đo**. Nó không xếp hạng, không chọn model, không export —
     những việc đó thuộc task sau. Vì vậy giá trị trả về là một `dict` khoá
@@ -770,23 +757,15 @@ def evaluate_on_test(
     log_run_context(log)
 
     X, y = build_training_data(params, seed=seed)
-    X_train, X_val, X_test, y_train, y_val, y_test = split_train_val_test(
+    X_train, _, X_test, y_train, _, y_test = split_train_val_test(
         X, y, test_size=test_size, seed=seed)
     labels = [g.value for g in ORDERED_GROUPS]
-    log.info("Đánh giá %d thuật toán trên validation %d dòng và test %d dòng",
-             len(algorithms), len(X_val), len(X_test))
+    log.info("Đánh giá %d thuật toán trên cùng tập test %d dòng",
+             len(algorithms), len(X_test))
 
     per_algo: dict[str, dict] = {}
-    validation_metrics: dict[str, dict] = {}
     for algo in algorithms:
-        model = PipelineClassifier(
-            task=TASK, algo=algo,
-            estimator=ALGORITHMS[algo](seed),
-            preprocessing=build_preprocessing_pipeline())
-        model.fit(X_train, y_train)
-
-        validation_metrics[algo] = classification_metrics(
-            y_val, model.predict(X_val), labels=labels)
+        model, _ = fit_on_train(algo, X_train, y_train, seed)
 
         predicted = model.predict(X_test)
         metrics = classification_metrics(y_test, predicted, labels=labels)
@@ -795,62 +774,41 @@ def evaluate_on_test(
             "per_class": per_class_table(y_test, predicted, labels),
             "confusion": confusion_table(y_test, predicted, labels),
         }
-        log.info("%-16s validation macro-F1 %.4f · test macro-F1 %.4f",
-                 algo, validation_metrics[algo]["macro_f1"], metrics["macro_f1"])
+        log.info("%-16s test macro-F1 %.4f · accuracy %.4f",
+                 algo, metrics["macro_f1"], metrics["accuracy"])
 
     summary = pd.DataFrame(
         [{"algo": algo, **per_algo[algo]["metrics"]} for algo in algorithms])
-    validation_summary = pd.DataFrame(
-        [{"algo": algo, **validation_metrics[algo]} for algo in algorithms])
 
     result = {
         "X_test": X_test,
         "y_test": y_test,
-        "X_val": X_val,
-        "y_val": y_val,
         "labels": labels,
         "per_algo": per_algo,
         "summary": summary,
-        "validation_summary": validation_summary,
     }
 
     if save:
         result["files"] = _save_test_evaluation(
-            per_algo, summary, algorithms, runs_dir, seed, len(X_test),
-            validation_summary=validation_summary, n_val=len(X_val))
+            per_algo, summary, algorithms, runs_dir, seed, len(X_test))
     return result
 
 
-def _save_test_evaluation(per_algo, summary, algorithms, runs_dir, seed, n_test,
-                          validation_summary=None, n_val=None):
-    """Ghi kết quả đánh giá ra `src/training/runs/`.
+def _save_test_evaluation(per_algo, summary, algorithms, runs_dir, seed, n_test):
+    """Ghi kết quả đánh giá trên tập test ra `src/training/runs/`.
 
     Bảng per-class và confusion của 4 model gộp vào MỘT file mỗi loại, phân
     biệt bằng cột `algo` — tám file rời cho cùng một lần chạy chỉ làm thư mục
     khó đọc, mà đọc được vẫn phải mở từng cái để ghép lại.
-
-    Chỉ số validation đi chung `results.csv` với `split="validation"`, không
-    ra file riêng: nó là cùng một loại số với `cv_train` và `test`, tách file
-    thì so ba tập lại phải tự ghép.
     """
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    def _tag(frame, split: str, n_rows: int, note: str):
-        tagged = frame.copy()
-        tagged["split"] = split
-        tagged["n_rows"] = n_rows
-        tagged["note"] = note
-        return tagged
-
-    rows = []
-    if validation_summary is not None:
-        rows.append(_tag(validation_summary, "validation", n_val,
-                         "task11 validation"))
-    rows.append(_tag(summary, "test", n_test, "task11 test evaluation"))
-
+    logged = summary.copy()
+    logged["split"] = "test"
+    logged["n_rows"] = n_test
+    logged["note"] = "task11 test evaluation"
     # `append_results` sắp lại cột theo `LEADING_COLUMNS`, nên ở đây chỉ cần
     # có đủ cột chứ không cần chèn đúng vị trí.
-    logged = pd.concat(rows, ignore_index=True)
     logged["task"] = TASK
     logged["feature_set"] = "default"
     logged["random_seed"] = seed
@@ -875,7 +833,7 @@ def _save_test_evaluation(per_algo, summary, algorithms, runs_dir, seed, n_test,
 
 # ------------------------------------------ task 12 — so sánh model
 
-#: Ba chỉ số đưa vào bảng so sánh, kèm khoảng cách CV → test cho mỗi cái.
+#: Ba chỉ số đưa vào bảng so sánh, kèm khoảng cách validation → test.
 COMPARISON_METRICS: Final[tuple[str, ...]] = (
     "accuracy", "macro_f1", "balanced_accuracy")
 
@@ -902,7 +860,7 @@ def missing_comparison_rows(
     """Liệt kê `(algo, split)` còn thiếu để dựng được bảng so sánh đầy đủ."""
     have = set(map(tuple, results[["algo", "split"]].dropna().to_numpy()))
     return [(algo, split) for algo in algorithms
-            for split in ("cv_train", "test") if (algo, split) not in have]
+            for split in ("validation", "test") if (algo, split) not in have]
 
 
 def build_comparison(
@@ -910,14 +868,16 @@ def build_comparison(
     algorithms: tuple[str, ...] = CONTENDERS,
     metrics: tuple[str, ...] = COMPARISON_METRICS,
 ) -> pd.DataFrame:
-    """Ghép chỉ số CV và test cạnh nhau, kèm khoảng cách giữa hai bên.
+    """Ghép chỉ số validation và test cạnh nhau, kèm khoảng cách giữa hai bên.
 
-    `gap = CV − test`, cố ý theo chiều đó: số DƯƠNG nghĩa là CV lạc quan hơn
-    thực tế, và đó là chiều đáng lo. Số âm nghĩa là model làm tốt hơn trên
-    dữ liệu chưa từng thấy — hiếm, và thường chỉ là dao động mẫu.
+    `gap = validation − test`, cố ý theo chiều đó: số DƯƠNG nghĩa là chỉ số
+    validation lạc quan hơn thực tế, và đó là chiều đáng lo. Số âm nghĩa là
+    model làm tốt hơn trên dữ liệu chưa từng thấy — thường chỉ là dao động mẫu.
 
-    Khoảng cách này đọc cùng với `*_std` giữa các fold mới có nghĩa: gap nhỏ
-    hơn một độ lệch chuẩn thì không phân biệt được với nhiễu.
+    Với phương pháp Train/Validation/Test, mỗi chỉ số là MỘT điểm đo trên 3.000
+    hộ chứ không phải trung bình của nhiều fold. Nên không còn `*_std` để nói
+    "gap nhỏ hơn một độ lệch chuẩn"; đọc gap ở đây là đọc một hiệu số trần
+    trụi, và một khoảng chênh vài phần nghìn hoàn toàn có thể là ngẫu nhiên.
     """
     latest = (results.dropna(subset=["split"])
               .groupby(["algo", "split"], as_index=False).last()
@@ -927,14 +887,15 @@ def build_comparison(
     for algo in algorithms:
         row: dict = {"algo": algo}
         for metric in metrics:
-            cv = latest.loc[(algo, "cv_train"), metric] if (algo, "cv_train") in latest.index else np.nan
-            test = latest.loc[(algo, "test"), metric] if (algo, "test") in latest.index else np.nan
-            row[f"cv_{metric}"] = float(cv)
+            key_val, key_test = (algo, "validation"), (algo, "test")
+            validation = (latest.loc[key_val, metric]
+                          if key_val in latest.index else np.nan)
+            test = (latest.loc[key_test, metric]
+                    if key_test in latest.index else np.nan)
+            row[f"validation_{metric}"] = float(validation)
             row[f"test_{metric}"] = float(test)
-            row[f"gap_{metric}"] = float(cv) - float(test)
-        key = (algo, "cv_train")
-        row["cv_macro_f1_std"] = (float(latest.loc[key, "macro_f1_std"])
-                                  if key in latest.index else np.nan)
+            row[f"gap_{metric}"] = float(validation) - float(test)
+        key = (algo, "validation")
         row["fit_seconds"] = (float(latest.loc[key, "fit_seconds"])
                               if key in latest.index else np.nan)
         rows.append(row)
@@ -959,34 +920,33 @@ def build_per_class_comparison(runs_dir=None) -> pd.DataFrame:
     return table.reindex(order)
 
 
-def _backfill_cv_row(
+def _backfill_validation_row(
     algo: str,
     params: PopulationParams | None,
     seed: int,
-    n_splits: int,
     test_size: float,
     runs_dir,
 ) -> pd.DataFrame:
-    """Chạy CV cho MỘT thuật toán còn thiếu số, rồi ghi bổ sung vào results.csv.
+    """Chấm validation cho MỘT thuật toán còn thiếu số, ghi bổ sung vào results.csv.
 
     Chỉ chạy đúng thuật toán thiếu, không đụng ba cái đã có — task 12 không
     được train lại những gì đã có số.
     """
-    log.info("Thiếu CV của %s, chạy bổ sung", algo)
+    log.info("Thiếu chỉ số validation của %s, chạy bổ sung", algo)
     X, y = build_training_data(params, seed=seed)
-    X_train, _, y_train, _ = split_train_test(X, y, test_size, seed)
-    comparison, _ = cross_validate(
-        X_train, y_train, algorithms={algo: ALGORITHMS[algo]},
-        n_splits=n_splits, seed=seed)
+    X_train, X_val, _, y_train, y_val, _ = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
+    comparison, _ = evaluate_on_validation(
+        X_train, y_train, X_val, y_val,
+        algorithms={algo: ALGORITHMS[algo]}, seed=seed)
 
     logged = comparison.copy()
-    logged["split"] = "cv_train"
+    logged["split"] = "validation"
     logged.insert(0, "task", TASK)
     logged.insert(2, "feature_set", "default")
     logged.insert(3, "random_seed", seed)
-    logged.insert(4, "n_rows", len(X_train))
-    logged.insert(5, "n_splits", n_splits)
-    logged["note"] = f"task12 backfill cv ({algo})"
+    logged.insert(4, "n_rows", len(X_val))
+    logged["note"] = f"task12 backfill validation ({algo})"
     append_results(logged, runs_dir / "results.csv")
     return logged
 
@@ -994,24 +954,22 @@ def _backfill_cv_row(
 def compare_models(
     params: PopulationParams | None = None,
     seed: int | None = None,
-    n_splits: int | None = None,
     test_size: float | None = None,
     algorithms: tuple[str, ...] = CONTENDERS,
     runs_dir=None,
     backfill: bool = True,
     save: bool = True,
 ) -> dict:
-    """Task 12 — so sánh 4 thuật toán từ số ĐÃ CÓ của task 8–11.
+    """Task 12 — so sánh 4 thuật toán từ số ĐÃ CÓ của task 7–11.
 
     Không train lại thứ gì đã có số. Ngoại lệ duy nhất là `backfill`: nếu một
-    thuật toán thiếu hẳn dòng CV thì không dựng được cột `gap` cho nó, và lúc
-    đó chạy CV cho riêng nó là bắt buộc chứ không phải tiện tay.
+    thuật toán thiếu hẳn dòng validation thì không dựng được cột `gap` cho nó,
+    và lúc đó chấm riêng nó là bắt buộc chứ không phải tiện tay.
 
     Hàm này **không chọn model**. Nó xếp bảng và tính khoảng cách; việc quyết
     định lấy model nào thuộc task sau.
     """
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
     test_size = CONFIG.training["test_size"] if test_size is None else test_size
     runs_dir = CONFIG.paths.runs if runs_dir is None else runs_dir
 
@@ -1021,11 +979,11 @@ def compare_models(
     backfilled: list[str] = []
     if missing and backfill:
         for algo, split in missing:
-            if split != "cv_train":
+            if split != "validation":
                 raise ValueError(
                     f"Thiếu kết quả test của {algo} — chạy lại task 11, "
                     "task 12 không tự chấm trên tập test.")
-            _backfill_cv_row(algo, params, seed, n_splits, test_size, runs_dir)
+            _backfill_validation_row(algo, params, seed, test_size, runs_dir)
             backfilled.append(algo)
         results = load_results(runs_dir)
         missing = missing_comparison_rows(results, algorithms)
@@ -1037,8 +995,8 @@ def compare_models(
     per_class = build_per_class_comparison(runs_dir)
 
     for _, row in comparison.iterrows():
-        log.info("%-16s CV %.4f → test %.4f (gap %+.4f) macro-F1",
-                 row["algo"], row["cv_macro_f1"],
+        log.info("%-16s validation %.4f → test %.4f (gap %+.4f) macro-F1",
+                 row["algo"], row["validation_macro_f1"],
                  row["test_macro_f1"], row["gap_macro_f1"])
 
     result = {
@@ -1175,56 +1133,57 @@ def feature_importance_report(
 # -------------------------------------- task 14 — chọn model tốt nhất
 
 def select_final_model(comparison: pd.DataFrame, task: str = TASK) -> dict:
-    """Task 14 — chọn model theo **CV macro-F1**, không nhìn tập test.
+    """Task 14 — chọn model theo **macro-F1 trên tập validation**, không nhìn test.
 
     Điều "không chọn theo test" ở đây là ràng buộc CẤU TRÚC, không phải lời
     hứa: khung dữ liệu đưa vào `select_best()` được dựng lại chỉ từ cột
-    `cv_*`, nên hàm quyết định **không có** con số test nào để mà dùng. Đổi
-    hết chỉ số test đi thì lựa chọn vẫn y nguyên.
+    `validation_*`, nên hàm quyết định **không có** con số test nào để mà dùng.
+    Đổi hết chỉ số test đi thì lựa chọn vẫn y nguyên.
 
-    Bản ghi trả về kèm `margin` (khoảng cách tới model hạng nhì) và
-    `margin_vs_fold_std`. Chọn thì vẫn cứ argmax theo đúng yêu cầu, nhưng
-    khoảng cách nhỏ hơn dao động giữa các fold thì phải nói ra — "thắng
-    0,012 với σ 0,006" và "thắng áp đảo" là hai kết luận khác nhau.
+    Bản ghi trả về kèm `margin` — khoảng cách tới model hạng nhì. Trước
+    14/08/2026 còn có `margin_vs_fold_std` (margin chia cho σ giữa các fold);
+    phương pháp đã bỏ CV nên không còn σ, và trường đó đã được gỡ thay vì để
+    lại một giá trị không có cách tính. Hệ quả: khoảng cách bây giờ chỉ đọc
+    được như một hiệu số trần trụi, không quy chiếu được về độ nhiễu.
 
     Chỉ số test được ghi vào `supporting`, đúng vai trò tham khảo.
     """
     metric = SELECTION_METRIC[task]
-    cv_column, test_column = f"cv_{metric}", f"test_{metric}"
+    validation_column, test_column = f"validation_{metric}", f"test_{metric}"
 
-    # Chỉ cột CV đi vào quyết định. Không đưa cột test vào khung này.
-    cv_only = (comparison[["algo", cv_column]]
-               .rename(columns={cv_column: metric}))
-    selected = select_best(cv_only, task)
+    # Chỉ cột validation đi vào quyết định. Không đưa cột test vào khung này.
+    validation_only = (comparison[["algo", validation_column]]
+                       .rename(columns={validation_column: metric}))
+    selected = select_best(validation_only, task)
 
-    ranking = comparison.sort_values(cv_column, ascending=False).reset_index(drop=True)
+    ranking = (comparison.sort_values(validation_column, ascending=False)
+               .reset_index(drop=True))
     best_row = ranking.iloc[0]
     runner_up = ranking.iloc[1] if len(ranking) > 1 else None
-    fold_std = float(best_row.get("cv_macro_f1_std", float("nan")))
-    margin = (float(best_row[cv_column]) - float(runner_up[cv_column])
+    margin = (float(best_row[validation_column]) - float(runner_up[validation_column])
               if runner_up is not None else float("nan"))
 
     record = {
         "selected": selected,
         "task": task,
         "selection_metric": metric,
-        "selection_basis": "cross-validation trên tập train (80%)",
-        "criterion": (f"macro-F1 cao nhất khi CV {int(comparison.shape[0])} thuật toán "
-                      f"trên cùng fold, cùng feature, cùng seed; "
+        "selection_basis": "tập validation (15%), fit trên tập train (70%)",
+        "criterion": (f"macro-F1 cao nhất trên tập validation khi chấm "
+                      f"{int(comparison.shape[0])} thuật toán trên cùng tập, "
+                      f"cùng feature, cùng seed; "
                       f"baseline bị loại khỏi danh sách dự tuyển"),
-        "cv_macro_f1": float(best_row[cv_column]),
-        "cv_macro_f1_std": fold_std,
+        "validation_macro_f1": float(best_row[validation_column]),
         "runner_up": str(runner_up["algo"]) if runner_up is not None else None,
         "margin": margin,
-        "margin_vs_fold_std": (margin / fold_std) if fold_std else float("nan"),
-        "cv_ranking": [
-            {"algo": str(row["algo"]), "cv_macro_f1": float(row[cv_column])}
+        "validation_ranking": [
+            {"algo": str(row["algo"]),
+             "validation_macro_f1": float(row[validation_column])}
             for _, row in ranking.iterrows()
         ],
         # Tham khảo. KHÔNG tham gia quyết định trên.
         "supporting": {
             "test_macro_f1": float(best_row[test_column]),
-            "gap_cv_minus_test": float(best_row[f"gap_{metric}"]),
+            "gap_validation_minus_test": float(best_row[f"gap_{metric}"]),
             "note": "chỉ số test chỉ để đối chiếu, không dùng để chọn model",
         },
     }
@@ -1246,17 +1205,17 @@ def record_model_selection(
     results = load_results(runs_dir)
 
     missing = missing_comparison_rows(results, algorithms)
-    if [row for row in missing if row[1] == "cv_train"]:
+    if [row for row in missing if row[1] == "validation"]:
         raise ValueError(
-            f"Thiếu kết quả CV để chọn model: {missing}. "
-            "Chạy task 8–12 trước; task 14 không train lại.")
+            f"Thiếu kết quả validation để chọn model: {missing}. "
+            "Chạy task 7–12 trước; task 14 không train lại.")
 
     comparison = build_comparison(results, algorithms)
     record = select_final_model(comparison, task)
 
-    log.info("Model được chọn: %s (CV macro-F1 %.4f, hơn %s %+.4f = %.1f×σ)",
-             record["selected"], record["cv_macro_f1"], record["runner_up"],
-             record["margin"], record["margin_vs_fold_std"])
+    log.info("Model được chọn: %s (validation macro-F1 %.4f, hơn %s %+.4f)",
+             record["selected"], record["validation_macro_f1"],
+             record["runner_up"], record["margin"])
 
     result = {"record": record, "comparison": comparison}
     if save:
@@ -1355,7 +1314,7 @@ def export_final_model(runs_dir=None, verify: bool = True) -> dict:
         "selection": selection,
         "environment": _environment(),
     }
-    metrics = {"cv": source_meta.get("metrics", {}).get("cv", {}),
+    metrics = {"validation": source_meta.get("metrics", {}).get("validation", {}),
                "test": test_metrics}
 
     # Chỉ đổi NHÃN phiên bản để slug của bản export khác bản train; trọng số
@@ -1446,7 +1405,7 @@ def check_gates(
 
         Cân bằng lớp     toàn bộ dân số — đó là tính chất của dữ liệu
         Ranh giới sạch   tập TEST nếu có, vì đó mới là con số thật
-        Thắng baseline   CV, vì chỉ ở đó cả 4 thuật toán mới có số để so
+        Thắng baseline   VALIDATION, vì chỉ ở đó cả 4 thuật toán mới có số để so
     """
     contenders = comparison[comparison["algo"] != BASELINE]
     baseline = comparison[comparison["algo"] == BASELINE]
@@ -1468,7 +1427,7 @@ def check_gates(
         source = "test"
     else:
         best_accuracy = float(contenders["accuracy"].max())
-        source = "CV"
+        source = "validation"
     rows.append({
         "cổng": "Ranh giới không quá sạch",
         "điều kiện": f"accuracy tốt nhất ≤ {GATE_MAX_ACCURACY}",
@@ -1481,16 +1440,18 @@ def check_gates(
                      "đạt": False, "chi tiết": "thiếu baseline trong bảng"})
     else:
         base_score = float(baseline["macro_f1"].iloc[0])
-        base_std = float(baseline.get("macro_f1_std", pd.Series([0.0])).iloc[0])
+        # Trước đây ngưỡng là `max(GATE_BASELINE_MARGIN, 2σ)` với σ là độ lệch
+        # giữa các fold. Bỏ CV thì không còn σ, nên vế 2σ đã được gỡ chứ không
+        # thay bằng một ước lượng tự chế — chỉ còn ngưỡng tuyệt đối, và cổng
+        # này vì thế dễ qua hơn bản cũ. Nói ra để không ai đọc nhầm là chặt hơn.
         losers = []
         for _, row in contenders.iterrows():
             margin = float(row["macro_f1"]) - base_score
-            spread = 2 * (float(row.get("macro_f1_std", 0.0)) + base_std)
-            if margin < max(GATE_BASELINE_MARGIN, spread):
+            if margin < GATE_BASELINE_MARGIN:
                 losers.append(f"{row['algo']} (+{margin:.4f})")
         rows.append({
             "cổng": "Thắng baseline rõ rệt",
-            "điều kiện": f"macro-F1 hơn baseline ≥ {GATE_BASELINE_MARGIN} và > 2σ",
+            "điều kiện": f"macro-F1 hơn baseline ≥ {GATE_BASELINE_MARGIN}",
             "đạt": not losers,
             "chi tiết": f"baseline {base_score:.4f}; "
                         + (", ".join(losers) + " không đạt" if losers else "mọi model đạt"),
@@ -1518,7 +1479,6 @@ def select_best(comparison: pd.DataFrame, task: str = TASK) -> str:
 def run_full_pipeline(
     params: PopulationParams | None = None,
     seed: int | None = None,
-    n_splits: int | None = None,
     test_size: float | None = None,
     export: bool = True,
     note: str = "",
@@ -1526,8 +1486,9 @@ def run_full_pipeline(
 ) -> dict:
     """Chạy trọn F03 task 5–15 trong MỘT lần gọi.
 
-    Trình tự cố ý không đảo được: tách test → CV trên train → chọn model →
-    mới chấm test. Tập test không tham gia bất cứ quyết định nào phía trước.
+    Trình tự cố ý không đảo được: tách 70/15/15 → fit trên train → chọn model
+    trên **validation** → mới chấm test. Tập test không tham gia bất cứ quyết
+    định nào phía trước.
 
     Đây là đường chạy gộp, có trước khi F03 được tách thành từng task riêng.
     Nó vẫn được giữ vì hai test cấu trúc dựa vào nó — nhất là phép kiểm tập
@@ -1540,7 +1501,6 @@ def run_full_pipeline(
     thứ không còn lẫn.
     """
     seed = CONFIG.random_seed if seed is None else seed
-    n_splits = CONFIG.training["n_splits"] if n_splits is None else n_splits
     runs_dir = CONFIG.paths.runs if runs_dir is None else runs_dir
     log_run_context(log)
 
@@ -1548,19 +1508,17 @@ def run_full_pipeline(
     labels = [g.value for g in ORDERED_GROUPS]
     log.info("Dữ liệu ML01: %d dòng × %d feature", len(X), X.shape[1])
 
-    X_train, X_test, y_train, y_test = split_train_test(X, y, test_size, seed)
+    X_train, X_val, X_test, y_train, y_val, y_test = split_train_val_test(
+        X, y, test_size=test_size, seed=seed)
 
-    # -- Chọn model: CV chỉ trên tập train, test chưa được đụng tới.
-    comparison, oof = cross_validate(X_train, y_train, n_splits=n_splits, seed=seed)
+    # -- Chọn model trên VALIDATION; test chưa được đụng tới.
+    comparison, _ = evaluate_on_validation(
+        X_train, y_train, X_val, y_val, seed=seed)
     best = select_best(comparison)
-    log.info("Model được chọn theo macro-F1 (CV trên train): %s", best)
+    log.info("Model được chọn theo macro-F1 trên validation: %s", best)
 
-    # -- Fit model đã chọn trên toàn bộ tập train, rồi chấm test MỘT LẦN.
-    final = PipelineClassifier(
-        task=TASK, algo=best,
-        estimator=ALGORITHMS[best](seed),
-        preprocessing=build_preprocessing_pipeline())
-    final.fit(X_train, y_train)
+    # -- Model đã chọn, fit trên tập train, rồi chấm test MỘT LẦN.
+    final, _ = fit_on_train(best, X_train, y_train, seed)
 
     test_predictions = final.predict(X_test)
     test_metrics = classification_metrics(y_test, test_predictions, labels=labels)
@@ -1568,11 +1526,7 @@ def run_full_pipeline(
              test_metrics["macro_f1"], test_metrics["accuracy"])
 
     # Baseline cũng chấm trên test để bảng báo cáo có mốc so sánh cùng tập.
-    baseline_model = PipelineClassifier(
-        task=TASK, algo=BASELINE,
-        estimator=ALGORITHMS[BASELINE](seed),
-        preprocessing=build_preprocessing_pipeline())
-    baseline_model.fit(X_train, y_train)
+    baseline_model, _ = fit_on_train(BASELINE, X_train, y_train, seed)
     baseline_test = classification_metrics(
         y_test, baseline_model.predict(X_test), labels=labels)
 
@@ -1580,9 +1534,9 @@ def run_full_pipeline(
 
     result = {
         "X_train": X_train, "y_train": y_train,
+        "X_val": X_val, "y_val": y_val,
         "X_test": X_test, "y_test": y_test,
-        "comparison": comparison,          # CV trên train — dùng để CHỌN
-        "oof": oof,
+        "comparison": comparison,          # validation — dùng để CHỌN
         "test_metrics": test_metrics,      # test — con số ĐEM BÁO CÁO
         "baseline_test_metrics": baseline_test,
         "gates": gates,
@@ -1597,19 +1551,20 @@ def run_full_pipeline(
     }
 
     if export:
-        # Metadata mang CẢ HAI: chỉ số CV (căn cứ chọn) và chỉ số test (kết
-        # quả báo cáo). Chỉ lưu một trong hai thì sau này không ai dựng lại
-        # được vì sao model này được chọn.
-        cv_metrics = comparison.loc[comparison["algo"] == best].iloc[0].to_dict()
-        cv_metrics.pop("algo", None)
+        # Metadata mang CẢ HAI: chỉ số validation (căn cứ chọn) và chỉ số test
+        # (kết quả báo cáo). Chỉ lưu một trong hai thì sau này không ai dựng
+        # lại được vì sao model này được chọn.
+        validation_metrics = comparison.loc[
+            comparison["algo"] == best].iloc[0].to_dict()
+        validation_metrics.pop("algo", None)
         result["artifact"] = save_model(final, metrics={
-            "cv": cv_metrics,
+            "validation": validation_metrics,
             "test": test_metrics,
             "baseline_test": baseline_test,
         }, directory=runs_dir)
 
         logged = comparison.copy()
-        logged["split"] = "cv_train"
+        logged["split"] = "validation"
         logged = pd.concat([logged, pd.DataFrame([
             {"algo": best, "split": "test", **test_metrics},
             {"algo": BASELINE, "split": "test", **baseline_test},
@@ -1618,7 +1573,6 @@ def run_full_pipeline(
         logged.insert(2, "feature_set", "default")
         logged.insert(3, "random_seed", seed)
         logged.insert(4, "n_rows", len(X))
-        logged.insert(5, "n_splits", n_splits)
         logged["note"] = note or f"best={best}"
         result["results_csv"] = append_results(logged, runs_dir / "results.csv")
 

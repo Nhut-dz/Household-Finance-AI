@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-08-15T06:54:22+00:00",
+  "task": "ML02 task 5 — Chia train/validation/test",
+  "method": "stratified two-stage holdout",
+  "cross_validation": false,
+  "note": "KHÔNG dùng K-Fold Cross-Validation. Mỗi thuật toán fit một lần trên train, chấm một lần trên validation. Test chỉ mở ở task 14.",
+  "seed": 42,
+  "sizes": {
+    "train": 215257,
+    "validation": 46127,
+    "test": 46127
+  },
+  "ratios": {
+    "train": 0.7,
+    "validation": 0.15,
+    "test": 0.15
+  },
+  "n_invalid_excluded_from_train": 0,
+  "id_column": "SK_ID_CURR",
+  "target_column": "TARGET",
+  "distribution": [
+    {
+      "split": "train",
+      "n_rows": 215257,
+      "share": 0.6999977236586659,
+      "n_positive": 17377,
+      "positive_rate": 0.08072675917624049,
+      "deviation_sigma": 0.0035088830748603223
+    },
+    {
+      "split": "validation",
+      "n_rows": 46127,
+      "share": 0.15000113817066707,
+      "n_positive": 3724,
+      "positive_rate": 0.08073362672621241,
+      "deviation_sigma": 0.0037900063502133686
+    },
+    {
+      "split": "test",
+      "n_rows": 46127,
+      "share": 0.15000113817066707,
+      "n_positive": 3724,
+      "positive_rate": 0.08073362672621241,
+      "deviation_sigma": 0.0037900063502133686
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "task": "ML02 task 13 — Phân tích feature importance",
+  "measured_on": "validation",
+  "test_set_touched": false,
+  "sample_size": 10000,
+  "permutation_scoring": "average_precision",
+  "n_repeats": 5,
+  "methods": [
+    "builtin_impurity",
+    "permutation",
+    "shap"
+  ],
+  "purpose": "diagnostic",
+  "leakage_note": "Permutation và SHAP đo trên tập validation. Dùng chúng để bỏ bớt feature rồi train lại và chấm lại trên chính tập đó là RÒ RỈ. Việc chọn feature có giám sát nằm TRONG Pipeline nên chỉ nhìn thấy tập train (§4.3e).",
+  "feature_selection_changed": false,
+  "models": [
+    "ml02_decision_tree_reduced",
+    "ml02_decision_tree_full",
+    "ml02_bagging_reduced",
+    "ml02_bagging_full",
+    "ml02_random_forest_reduced",
+    "ml02_random_forest_full",
+    "ml02_xgboost_reduced",
+    "ml02_xgboost_full"
+  ]
+}

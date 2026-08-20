@@ -17,9 +17,11 @@ database:
   user: postgres
 
 training:
-  n_splits: 5
   # Task 5 — chia ba: train 70% · validation 15% · test 15%.
   # train suy ra từ phần còn lại, không khai riêng để ba số khỏi lệch tổng.
+  #
+  # KHÔNG có `n_splits`: ML01 không dùng K-Fold Cross-Validation (chốt
+  # 14/08/2026). Model được chọn theo macro-F1 trên tập validation.
   val_size: 0.15
   test_size: 0.15
 
@@ -28,8 +30,32 @@ logging:
   console: true
   file: logs/hfml.log   # xoay vòng 5 MB × 3 file, UTF-8
 
+# Runtime của module inference (Epic AI-03). Đọc bởi hfml/inference/settings.py.
+# Mọi biến ở đây đều có env override tương ứng (HFML_*) để đổi khi vận hành mà
+# không phải sửa file.
+inference:
+  # Artifact đang phục vụ. Đổi model = đổi hai dòng này, không sửa mã nguồn.
+  # HFML_ML01_SLUG / HFML_ML02_SLUG
+  ml01_slug: ml01_xgboost_vfinal
+  ml02_slug: ml02_xgboost_reduced_vfinal
+
+  # null = dùng ngưỡng đã chốt trong artifact (0.1303, F04 task 14) — đúng thứ
+  # đã được đánh giá trên tập validation. Đặt số ở đây là CHỦ ĐỘNG đánh đổi
+  # precision/recall so với báo cáo đánh giá, nên nó được log ở mức WARNING.
+  ml02_threshold: null
+
+  # Số lượt hội thoại gần nhất đưa vào context LLM.
+  history_turns: 3
+  # Số lần gọi lại LLM khi câu trả lời không qua kiểm.
+  llm_max_retries: 1
+
 llm:
   model: gemini-3.6-flash
-  max_tokens: 1500
+  # 4000 chứ không phải 1500. Đo được trên một lượt thật: câu trả lời JSON
+  # tiếng Việt tốn ~640 token đầu ra, NHƯNG model còn dùng ~2150 token suy
+  # luận và cả hai cùng tính vào hạn mức này. Đặt 1500 thì mọi lượt gọi đều
+  # dừng ở FinishReason.MAX_TOKENS, JSON bị cắt giữa chừng, và hệ thống lặng
+  # lẽ hạ cấp về template — trông y hệt như chưa cấu hình API key.
+  max_tokens: 4000
   # Nhiệt độ thấp: tầng llm chỉ diễn đạt lại JSON, không cần sáng tạo.
   temperature: 0.3

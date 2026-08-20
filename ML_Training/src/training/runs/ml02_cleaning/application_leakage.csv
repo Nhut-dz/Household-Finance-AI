@@ -1,0 +1,7 @@
+check,passed,measured,note
+target_excluded_from_features,True,TARGET KHÔNG trong 126 feature,"Nhãn lọt vào X là model học thuộc đáp án — accuracy ~100%, vô nghĩa."
+id_excluded_from_features,True,SK_ID_CURR KHÔNG trong feature set,Mã định danh thường mang thông tin thời gian cấp mã.
+id_carries_no_time_signal,True,"tỉ lệ vỡ nợ theo thập phân vị ID: 0.0791–0.0829 (chênh 0.0038, ngưỡng 3σ = 0.0047)",Chênh lệch lớn hơn nhiễu lấy mẫu nghĩa là ID là biến thời gian trá hình — model sẽ học một xu hướng không tồn tại lúc chạy thật.
+no_feature_correlates_with_target,True,|r| cao nhất 0.1789 ở `EXT_SOURCE_3` (ngưỡng 0.5),"Một cột tương quan gần tuyệt đối với nhãn gần như luôn là nhãn trá hình. Task 1 cũng đã kiểm bằng IV: không cột nào > 0,5."
+no_column_duplicates_the_target,True,0 cột trùng khít nhãn ,Bản sao của nhãn dưới một cái tên khác.
+no_duplicate_customers,True,0 dòng trùng SK_ID_CURR,Cùng một khách nằm ở cả train lẫn test là rò rỉ theo nghĩa đen.

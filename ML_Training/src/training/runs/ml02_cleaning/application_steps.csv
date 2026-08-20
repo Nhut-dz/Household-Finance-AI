@@ -1,0 +1,5 @@
+name,description,rows_before,rows_after,cols_before,cols_after,detail
+drop_duplicate_customers,Bỏ dòng trùng SK_ID_CURR,307511,307511,122,122,0 dòng trùng. Phải bỏ TRƯỚC khi chia tập: cùng một khách ở cả train lẫn test là rò rỉ theo nghĩa đen.
+normalize_missing,"Sentinel và chuỗi giả → NaN, sinh cờ nhị phân",307511,307511,122,128,"DAYS_EMPLOYED=365243 và 'XNA'/'XAP'/'Unknown' → NaN. Sinh 6 cờ: DAYS_EMPLOYED_MISSING, OCCUPATION_TYPE_MISSING, CREDIT_BUREAU_REQ_MISSING, BUILDING_INFO_MISSING, EXT_SOURCE_3_MISSING, EXT_SOURCE_1_MISSING. Giữ cờ vì ở dataset này việc THIẾU dữ liệu tự nó dự báo được vỡ nợ (lift 0,624–1,339)."
+normalize_dtypes,Cột chuỗi → category,307511,307511,128,128,0 cột chuỗi thực chất chứa số (0 = không có cột nào bị đọc sai kiểu).
+flag_invalid_rows,"Gắn cờ `INVALID_ROW`, không bỏ dòng",307511,307511,128,129,"0 dòng vi phạm ít nhất một quy tắc. Chỉ gắn cờ: bỏ trước khi chia tập thì tập test cũng sạch theo, và chỉ số sẽ đẹp hơn thực tế. Task 3 bỏ chúng khỏi RIÊNG tập train."

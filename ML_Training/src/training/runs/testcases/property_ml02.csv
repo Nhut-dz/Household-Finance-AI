@@ -1,0 +1,4 @@
+﻿property,n_profiles,n_monotone,rate,result,mean_series
+1 · Số khoản quá hạn tăng → rủi ro không giảm,18,10,0.5555555555555556,FAIL,0.05134 → 0.05168 → 0.08619 → 0.08619
+2 · Số tiền quá hạn tăng → rủi ro không giảm,18,11,0.6111111111111112,FAIL,0.05512 → 0.05168 → 0.05168 → 0.05168
+3 · DTI tăng → rủi ro không giảm (kỳ hạn giữ nguyên),27,21,0.7777777777777778,FAIL,0.02318 → 0.02427 → 0.02427 → 0.02423

@@ -245,6 +245,12 @@ def drop_invalid_rows(
 # --------------------------------------------------------------------------
 # Ngoại lai
 # --------------------------------------------------------------------------
+#: Cột không bao giờ kẹp: ID và nhãn. Kẹp ID là vô nghĩa, kẹp nhãn là hỏng
+#: bài toán. Bên gọi mở rộng danh sách này qua `clip_exclude` của
+#: `build_preprocessing_pipeline`, không sửa hằng số ở đây.
+DEFAULT_CLIP_EXCLUDE: Final[tuple[str, ...]] = ("SK_ID_CURR", "TARGET")
+
+
 class OutlierClipper(BaseEstimator, TransformerMixin):
     """Kẹp giá trị số về biên phân vị học từ tập train (winsorize).
 
@@ -265,7 +271,7 @@ class OutlierClipper(BaseEstimator, TransformerMixin):
         self,
         lower_quantile: float = 0.001,
         upper_quantile: float = 0.999,
-        exclude: tuple[str, ...] = ("SK_ID_CURR", "TARGET"),
+        exclude: tuple[str, ...] = DEFAULT_CLIP_EXCLUDE,
     ):
         self.lower_quantile = lower_quantile
         self.upper_quantile = upper_quantile

@@ -37,6 +37,7 @@ def population() -> pd.DataFrame:
 
 # ------------------------------------------ CỔNG KIỂM CHỨNG (PLAN §6.2)
 
+@pytest.mark.xfail(reason="Thiết kế nhãn CŨ (thang if/else) không còn giữ được cân bằng lớp sau khi ba công thức `savings_rate` được gộp về một: `labeler` trước đây bỏ quên khoản trả nợ, nên nhánh EMERGENCY yếu hơn thực tế và DEBT_FOCUS mới đủ 14%. Với công thức đúng, EMERGENCY nuốt phần lớn dân số và DEBT_FOCUS còn 1,6%. Đây là chứng cứ cho thấy cân bằng lớp của bản cũ là sản phẩm phụ của một lỗi tính toán, không phải của thiết kế. Bản thay thế là `scoring.py` + `dataset.py` (ML01 v2), có test riêng ở `test_ml01_v2.py`.", strict=False)
 def test_gate_every_class_reaches_ten_percent(population):
     """Cổng 1 — lớp nào dưới 10% thì bảng per-class không đọc được.
 

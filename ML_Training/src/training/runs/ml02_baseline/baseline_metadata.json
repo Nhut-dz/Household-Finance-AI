@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-08-15T07:10:48+00:00",
+  "task": "ML02 task 6 — Xây dựng baseline",
+  "random_seed": 42,
+  "evaluated_on": "validation",
+  "test_set_touched": false,
+  "n_train": 215257,
+  "n_validation": 46127,
+  "official_baseline": "baseline_stratified",
+  "selection_metric": "pr_auc",
+  "pr_auc_floor_is_base_rate": 0.08073362672621241,
+  "results": [
+    {
+      "name": "baseline_stratified",
+      "strategy": "stratified",
+      "role": "BASELINE chính thức — đoán ngẫu nhiên theo tỉ lệ lớp của tập train",
+      "pr_auc": 0.08130831287766399,
+      "pr_auc_lift": 1.0071182997067687,
+      "roc_auc": 0.5035797472986492,
+      "precision_positive": 0.08731864588930682,
+      "recall_positive": 0.08727175080558539,
+      "f1_positive": 0.08729519204942252,
+      "accuracy": 0.8526676350076962,
+      "balanced_accuracy": 0.5035797472986492,
+      "brier": 0.14733236499230384,
+      "base_rate": 0.08073362672621241,
+      "threshold": 0.5
+    },
+    {
+      "name": "reference_most_frequent",
+      "strategy": "most_frequent",
+      "role": "Tham chiếu — đoán toàn 0, cho thấy accuracy 91,93% là vô nghĩa",
+      "pr_auc": 0.08073362672621241,
+      "pr_auc_lift": 1.0,
+      "roc_auc": 0.5,
+      "precision_positive": 0.0,
+      "recall_positive": 0.0,
+      "f1_positive": 0.0,
+      "accuracy": 0.9192663732737876,
+      "balanced_accuracy": 0.5,
+      "brier": 0.08073362672621241,
+      "base_rate": 0.08073362672621241,
+      "threshold": 0.5
+    }
+  ]
+}

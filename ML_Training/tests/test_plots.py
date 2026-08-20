@@ -48,13 +48,13 @@ def runs(tmp_path):
 
     pd.DataFrame([
         {"algo": algo,
-         "cv_accuracy": 0.90 + i / 100, "test_accuracy": 0.89 + i / 100,
+         "validation_accuracy": 0.90 + i / 100, "test_accuracy": 0.89 + i / 100,
          "gap_accuracy": 0.01,
-         "cv_macro_f1": 0.88 + i / 100, "test_macro_f1": 0.87 + i / 100,
+         "validation_macro_f1": 0.88 + i / 100, "test_macro_f1": 0.87 + i / 100,
          "gap_macro_f1": 0.01,
-         "cv_balanced_accuracy": 0.87, "test_balanced_accuracy": 0.86,
+         "validation_balanced_accuracy": 0.87, "test_balanced_accuracy": 0.86,
          "gap_balanced_accuracy": 0.01,
-         "cv_macro_f1_std": 0.005, "fit_seconds": 1.0}
+         "fit_seconds": 1.0}
         for i, algo in enumerate(ALGOS)
     ]).to_csv(tmp_path / "model_comparison.csv", index=False)
 

@@ -559,7 +559,7 @@ Hiện thực nằm ở [labeler.py](src/hfml/ml/ml01_recommendation/labeler.py)
 | 2 | Thiết kế phương pháp xây dựng label | ✅ | `g(·)` = `label_frame()` + `add_label_noise()` (nhiễu 3%, chỉ đảo nhóm liền kề) |
 | 3 | Tạo synthetic dataset | ✅ | `generate_households()` — 20.000 hộ, seed 42 |
 | 4 | Kiểm tra phân bố class | ✅ | `class_distribution()` + cổng 1 của `check_gates()` — lớp nhỏ nhất **14,8%** ≥ 10% |
-| 5 | Chia train/validation/test | ✅ | `split_train_test()` — train 80% (16.000) · test 20% (4.000), CV 5-fold trong train (xem §6.3) |
+| 5 | Chia train/validation/test | ✅ | `split_train_val_test()` — train 70% (14.000) · validation 15% (3.000) · test 15% (3.000), stratified; **không dùng K-Fold CV** (xem §6.3) |
 | 6 | Thiết lập baseline | ✅ | `DummyClassifier(strategy='stratified')` — CV macro-F1 **0,2483** ≈ 1/k |
 | 7 | Train Decision Tree | ✅ | `train_decision_tree()` → `ml01_decision_tree_v1.joblib` — CV macro-F1 **0,8423** |
 | 8 | Train Bagging Classifier | ✅ | `train_bagging()` → `ml01_bagging_v1.joblib` — CV macro-F1 **0,9067** |
@@ -732,27 +732,41 @@ Viết đúng câu này thì ML01 là một thí nghiệm hợp lệ. Viết sai
 
 - **Chia dữ liệu (task 5 — chốt 12/08/2026):** mỗi hộ một dòng nên không cần group split.
 
-  | Tập | Tỉ lệ | Vai trò |
-  |---|---|---|
-  | **train** | 70% | `StratifiedKFold` 5-fold chạy trên đây — **căn cứ chọn model**, và là chỗ duy nhất sinh ra σ giữa các fold mà task 14 dùng để đo cách biệt |
-  | **validation** | 15% | chấm một lần để **đối chiếu** với CV; không tham gia chọn model |
-  | **test** | 15% | độc lập hoàn toàn, **chỉ** dùng cho đánh giá cuối |
+  | Tập | Tỉ lệ | Số hộ | Vai trò |
+  |---|---|---:|---|
+  | **train** | 70% | 14.000 | fit model |
+  | **validation** | 15% | 3.000 | **căn cứ chọn model** — so macro-F1 giữa 4 thuật toán; cũng là nơi tinh chỉnh siêu tham số nếu cần |
+  | **test** | 15% | 3.000 | độc lập hoàn toàn, **chỉ** dùng cho đánh giá cuối |
 
-  **CV 5-fold được giữ nguyên**, không bị tập validation thay thế. Hai thứ trả lời hai câu
-  khác nhau: CV cho biết chỉ số dao động bao nhiêu giữa các lát cắt (nên mới có σ),
-  validation cho một con số trên tập chưa từng fit. Bỏ CV thì tiêu chí *"hơn á quân bao
-  nhiêu lần σ"* của task 14 mất căn cứ. Có ba con số cho cùng một model (CV · validation ·
-  test) thì lệch bất thường giữa chúng lộ ra ngay.
+  **KHÔNG dùng K-Fold Cross-Validation.** Pipeline:
 
-  Tập test không được tham gia CV, chọn model, hay tinh chỉnh siêu tham số — hiện thực ở
-  `split_train_val_test()` ([train.py](src/hfml/ml/ml01_recommendation/train.py)), có test
-  cấu trúc canh ràng buộc này.
+  ```
+  Dataset 20.000 ──stratified──► Train 70% / Validation 15% / Test 15%
+                                    │
+       Train ──fit──► 4 model (Decision Tree · Bagging · Random Forest · XGBoost)
+                                    │
+       Validation ──chấm──► so macro-F1 ──► chọn model tốt nhất ──► tuning nếu cần
+                                    │
+       Test ──chấm MỘT lần──► Final Evaluation
+  ```
 
-  > **Sửa so với bản chốt 12/08/2026 (bản đầu):** trước đó là 80/20 không có tập validation
-  > cố định, với lập luận *"CV bên trong tập train đã đóng vai đó"*. Lập luận ấy vẫn đúng về
-  > mặt kỹ thuật — thay đổi này là để bám đúng tên task 5 (*"Chia train/validation/test"*) và
-  > thông lệ 70/15/15. Đổi lại, tập train co từ 16.000 xuống 14.000 dòng, nên các chỉ số CV
-  > sẽ khác bản cũ đôi chút.
+  Tập test không được tham gia training, chọn model, hay tinh chỉnh siêu tham số — hiện
+  thực ở `split_train_val_test()` ([train.py](src/hfml/ml/ml01_recommendation/train.py)),
+  có test cấu trúc canh ràng buộc này.
+
+  `stratify` ở cả hai lần cắt để tỉ lệ `EMERGENCY` · `DEBT_FOCUS` · `BUILD_BUFFER` ·
+  `GROWTH` giữ nguyên giữa ba tập.
+
+  > **Sửa so với bản chốt 12/08/2026:** bản đầu là 80/20 với CV 5-fold bên trong tập train.
+  > Ngày 14/08/2026 phương pháp đổi thành **70/15/15 và bỏ hẳn K-Fold Cross-Validation**
+  > theo khuyến nghị của giảng viên cho phạm vi đồ án.
+  >
+  > **Cái mất khi bỏ CV, ghi ra để đọc số cho đúng:** mỗi chỉ số bây giờ là MỘT điểm đo
+  > trên 3.000 hộ, không phải trung bình 5 lần kèm độ lệch. Không còn `macro_f1_std`, nên
+  > một khoảng chênh vài phần nghìn giữa hai model không quy chiếu được về độ nhiễu. Kéo
+  > theo hai chỗ đã phải viết lại: tiêu chí *"hơn á quân bao nhiêu lần σ"* của task 14
+  > (`margin_vs_fold_std`) đã gỡ bỏ, và cổng "Thắng baseline" chỉ còn ngưỡng tuyệt đối
+  > `≥ 0,15` thay vì `max(0,15 · 2σ)` — tức cổng này **dễ qua hơn** bản cũ.
 - **Baseline:** `DummyClassifier(strategy='stratified')` — mọi model phải thắng rõ rệt
 - **4 thuật toán** (cùng split, cùng feature, cùng `random_seed = 42`):
 
@@ -771,6 +785,966 @@ Viết đúng câu này thì ML01 là một thí nghiệm hợp lệ. Viết sai
 
 ## 7. F04 — ML02: Home Credit Risk Classification (15 task · M04 · Tuần 4)
 
+**Tiến độ: 15/15 task — F04 hoàn thành 16/08/2026.**
+
+**Model cuối: `ml02_xgboost_reduced_vfinal`** · PR-AUC test **0,1714**
+(2,12× mức đoán bừa) · ROC-AUC 0,6952 · recall lớp dương 0,4039 · Brier 0,0709 ·
+ngưỡng 0,1303. Bộ FULL đạt PR-AUC test 0,2472 nhưng **không deploy được** —
+đó là nội dung mục "phân tích tính khả thi triển khai" (§7.2).
+
+| # | Task | Trạng thái | Thành phẩm chính |
+|---|---|---|---|
+| 1 | Khám phá Home Credit Dataset | ✅ 15/08/2026 | [explore.py](src/hfml/ml/ml02_credit_risk/explore.py) · [report.py](src/hfml/ml/ml02_credit_risk/report.py) · [explore_ml02.py](scripts/explore_ml02.py) → [docs/ml02_eda.md](docs/ml02_eda.md) + 15 bảng ở `src/training/runs/ml02_eda/` · [test](tests/test_explore_ml02.py) (27 test) |
+| 2 | Data Cleaning | ✅ 15/08/2026 | [clean.py](src/hfml/ml/ml02_credit_risk/clean.py) · [clean_ml02.py](scripts/clean_ml02.py) → `data/interim/ml02/` + 8 bảng ở `src/training/runs/ml02_cleaning/` · [test](tests/test_clean_ml02.py) (25 test) |
+| 3 | Feature Engineering | ✅ 15/08/2026 | [features.py](src/hfml/ml/ml02_credit_risk/features.py) · [build_features_ml02.py](scripts/build_features_ml02.py) → 2 pipeline `.joblib` + 4 bảng ở `src/training/runs/ml02_features/` · [test](tests/test_features_ml02.py) (20 test) |
+| 4 | Xử lý class imbalance | ✅ 15/08/2026 | [imbalance.py](src/hfml/ml/ml02_credit_risk/imbalance.py) · [imbalance_ml02.py](scripts/imbalance_ml02.py) → 4 file ở `src/training/runs/ml02_imbalance/` · [test](tests/test_imbalance_ml02.py) (16 test) |
+| 5 | Chia train/validation/test | ✅ 15/08/2026 | [split.py](src/hfml/ml/ml02_credit_risk/split.py) · [split_ml02.py](scripts/split_ml02.py) → 4 file ở `src/training/runs/ml02_split/` · [test](tests/test_split_ml02.py) (21 test) |
+| 6 | Xây dựng baseline | ✅ 15/08/2026 | [baseline.py](src/hfml/ml/ml02_credit_risk/baseline.py) · [baseline_ml02.py](scripts/baseline_ml02.py) · `binary_metrics()` ở [metrics.py](src/hfml/ml/evaluation/metrics.py) → `runs/ml02_baseline/` + 2 dòng trong `results.csv` · [test](tests/test_baseline_ml02.py) (16 test) |
+| 7 | Train Decision Tree | ✅ 15/08/2026 | [train.py](src/hfml/ml/ml02_credit_risk/train.py) · [train_ml02_decision_tree.py](scripts/train_ml02_decision_tree.py) → `runs/ml02_models/` + 2 dòng `results.csv` · [test](tests/test_train_ml02.py) (18 test) |
+| 8 | Train Bagging Classifier | ✅ 15/08/2026 | `train_bagging()` ở [train.py](src/hfml/ml/ml02_credit_risk/train.py) · [train_ml02_bagging.py](scripts/train_ml02_bagging.py) → 2 artifact + 2 dòng `results.csv` · [test](tests/test_train_ml02.py) (+8 test) |
+| 9 | Train Random Forest | ✅ 15/08/2026 | `train_random_forest()` ở [train.py](src/hfml/ml/ml02_credit_risk/train.py) · [train_ml02_random_forest.py](scripts/train_ml02_random_forest.py) → 2 artifact + 2 dòng `results.csv` · [test](tests/test_train_ml02.py) (+7 test) |
+| 10 | Train XGBoost | ✅ 15/08/2026 | `train_xgboost()` ở [train.py](src/hfml/ml/ml02_credit_risk/train.py) · [train_ml02_xgboost.py](scripts/train_ml02_xgboost.py) → 2 artifact + 2 dòng `results.csv` · [test](tests/test_train_ml02.py) (+9 test) |
+| 11 | Đánh giá model | ✅ 15/08/2026 | [evaluate.py](src/hfml/ml/ml02_credit_risk/evaluate.py) · [evaluate_ml02.py](scripts/evaluate_ml02.py) → 6 bảng ở `runs/ml02_evaluation/` · [test](tests/test_evaluate_ml02.py) (18 test) |
+| 12 | So sánh model | ✅ 15/08/2026 | [compare.py](src/hfml/ml/ml02_credit_risk/compare.py) · [compare_ml02.py](scripts/compare_ml02.py) → 5 bảng ở `runs/ml02_comparison/` · [test](tests/test_compare_ml02.py) (22 test) |
+| 13 | Phân tích feature importance | ✅ 15/08/2026 | [importance.py](src/hfml/ml/ml02_credit_risk/importance.py) · [importance_ml02.py](scripts/importance_ml02.py) → 4 bảng ở `runs/ml02_importance/` · [test](tests/test_importance_ml02.py) (18 test) |
+| 14 | Chọn model tốt nhất | ✅ 15/08/2026 | [select.py](src/hfml/ml/ml02_credit_risk/select.py) · [select_ml02.py](scripts/select_ml02.py) → `runs/ml02_selection/` · [test](tests/test_select_ml02.py) (18 test) |
+| 15 | Export model | ✅ 16/08/2026 | [export.py](src/hfml/ml/ml02_credit_risk/export.py) · [export_ml02.py](scripts/export_ml02.py) → `ml02_xgboost_reduced_vfinal.joblib` + metadata · [test](tests/test_export_ml02.py) (15 test) |
+
+### 7.0o Export (task 15) — **F04 hoàn tất**
+
+**Artifact: `ml02_xgboost_reduced_vfinal`** (25 MB) + `metadata.json`.
+
+Artifact **tự chứa bốn phần**, không phải chỉ có model. Một file chỉ chứa
+estimator là artifact chưa dùng được: bên gọi vẫn phải tự dựng feature, tự nhớ
+thứ tự cột, tự nhớ ngưỡng — mà nhớ sai thì model **vẫn chạy và vẫn trả xác
+suất**, chỉ có điều xác suất đó vô nghĩa.
+
+| # | Phần | Từ task |
+|---|---|---|
+| 1 | Pipeline feature — nối bureau → dựng tỉ lệ → tiền xử lý | 3 |
+| 2 | XGBoost đã train, `scale_pos_weight` từ tập train | 10 |
+| 3 | Lớp hiệu chuẩn isotonic, fit trên validation | 14 |
+| 4 | Ngưỡng nghiệp vụ **0,1303** | 14 |
+
+> **Bằng chứng mạnh nhất cho việc phải gói ngưỡng vào artifact.** Trên 2.000 hồ
+> sơ test, xác suất **đã hiệu chuẩn** cao nhất chỉ **0,3478**. Nếu `predict()`
+> dùng quy tắc `argmax` mặc định của sklearn (tương đương ngưỡng 0,5) thì
+> **KHÔNG hồ sơ nào** được gắn `HIGH_RISK` — model vẫn chạy, vẫn trả xác suất
+> hợp lệ, chỉ là không phân loại gì cả. Với ngưỡng đã chốt: **345/2.000 (17,2%)**.
+>
+> Ngưỡng nằm ở tài liệu mà không nằm trong file thì sớm muộn có nơi triển khai
+> quên áp nó, và không có gì báo lỗi.
+
+**Hợp đồng inference trong `metadata.json`:**
+
+| Trường | Giá trị |
+|---|---|
+| `feature_names` | 17 cột, **đúng thứ tự** — F06 task 3 đối chiếu danh sách này |
+| `label_mapping` | `0 → LOW_RISK` · `1 → HIGH_RISK` · kèm nhãn tiếng Việt |
+| `threshold` | 0,1303 + quy tắc + caveat |
+| `calibration` | isotonic, fit trên validation |
+| `model_config` | toàn bộ siêu tham số XGBoost |
+| `metrics_validation` / `metrics_test` | PR-AUC test **0,1714** |
+| `data_version` | SHA-256 rút gọn của cả 5 file dataset |
+| `limitations` | 5 mục |
+
+Nhãn trả về là **chuỗi nghiệp vụ** `LOW_RISK`/`HIGH_RISK` chứ không phải 0/1:
+tầng `api` và `llm` đọc nhãn này ra cho người dùng, để 0/1 thì mỗi nơi tự đặt
+tên một kiểu và sớm muộn có nơi đảo ngược ý nghĩa.
+
+**Kiểm nạp lại — 5/5 đạt**, lệch xác suất **0,000e+00**:
+
+| Phép kiểm | Bắt được kiểu hỏng nào |
+|---|---|
+| nạp lại được | file hỏng / thiếu phụ thuộc |
+| xác suất trùng khít | model và pipeline |
+| thứ tự feature khớp metadata | hợp đồng inference (F06 task 3) |
+| `predict` áp đúng ngưỡng | dùng 0,5 hay dùng ngưỡng chốt |
+| ngưỡng ≠ 0,5 | quên gói ngưỡng |
+
+`fit()` của artifact **ném lỗi** — train lại lên bản export thì mọi con số trong
+`metadata.json` mô tả một model khác.
+
+**Tích hợp vào hệ thống là bước RIÊNG, chưa làm.** Hai hằng số ở
+[api/main.py](src/hfml/api/main.py) đang chờ:
+
+```python
+ML02_SLUG           = "ml02_xgboost_reduced_vfinal"   # hiện là "ml02_best_reduced_vfinal"
+ML02_RISK_THRESHOLD = 0.1303                          # hiện là None
+```
+
+Đổi hai dòng đó thì nhánh `LOAN_RISK_DIAGNOSIS` của Chatbot (đã dựng sẵn đường
+đi từ 15/08) tự sống.
+
+### 7.0n Chọn model + kiểm trên test (task 14)
+
+**Model được chọn: `ml02_xgboost_reduced`.** Ba bước, thứ tự không được đảo —
+đảo thứ tự thì con số test thôi là ước lượng độc lập mà thành một chỉ số đã
+được tối ưu gián tiếp, và đó là dạng rò rỉ không để lại dấu vết nào trong mã.
+
+**Bước 1 — chọn, chỉ bằng bằng chứng validation:**
+
+1. PR-AUC cao nhất ở bộ triển khai (0,1711) — chỉ số chọn model của ML02 (§7.3).
+2. Khoảng cách với á quân Bagging (+0,0102) **phân biệt được với nhiễu**: khoảng
+   tin cậy 95% [+0,0045 · +0,0151] không chứa 0, thắng **100%** số lần lấy mẫu.
+3. Cùng thuật toán cũng dẫn đầu ở bộ full → lựa chọn không phụ thuộc bộ feature.
+4. Bộ triển khai là **rút gọn**, không phải full: bộ full có `EXT_SOURCE_1/2/3`
+   mà form người dùng **không thu được** (§7.2).
+
+**Bước 2 — chốt cấu hình, vẫn trên validation. Hiệu chuẩn là bước quyết định:**
+
+| | Trước hiệu chuẩn | Sau hiệu chuẩn |
+|---|---:|---:|
+| Chênh hiệu chuẩn (model nói − thực tế) | **+0,3394** | **−0,0004** |
+| Brier | 0,2017 | **0,0710** |
+
+Task 11 đo được cả 8 model đều **nói quá** về rủi ro — hệ quả bắt buộc của
+`class_weight` / `scale_pos_weight`. Isotonic kéo chênh lệch về gần 0 và giảm
+Brier **65%**. Không có bước này thì con số ngưỡng không mang ý nghĩa xác suất
+nào, mà §8.1 lại ra quyết định theo đúng ngưỡng đó và tầng `llm` đọc nó ra cho
+người dùng.
+
+Dùng `isotonic` chứ không phải `sigmoid` mặc định: sigmoid giả định lệch hiệu
+chuẩn có dạng hàm logistic, mà lệch ở đây do **trọng số lớp** gây ra nên không
+có lý do gì mang dạng đó. Isotonic chỉ giả định đơn điệu — đúng thứ ta biết chắc.
+`FrozenEstimator` giữ nguyên model đã train, nên model cuối vẫn đúng là model đã
+được so sánh ở task 12.
+
+> **Ngưỡng `LOW_RISK` / `HIGH_RISK` = 0,1303** — chốt bằng F1 lớn nhất của lớp
+> dương trên validation. **Không phải 0,5**, đúng như đã cảnh báo từ task 4: với
+> tỉ lệ nền 8,07% thì 0,5 xếp gần như mọi hồ sơ vào `LOW_RISK`.
+>
+> ⚠️ **Giới hạn phải ghi vào `model_card.md`:** F1 coi *bỏ lọt một ca vỡ nợ* và
+> *gắn nhãn rủi ro cho một hồ sơ tốt* là **đắt như nhau**. Trong tín dụng thật
+> thì không. Ngưỡng đúng phải suy từ ma trận chi phí của tổ chức cho vay, mà đồ
+> án không có — F1 là lựa chọn **trung tính khi chưa có chi phí**, không phải
+> lựa chọn tối ưu.
+>
+> Điểm vận hành thứ hai để tham chiếu: rà soát 10% hồ sơ rủi ro nhất ứng với
+> ngưỡng 0,1483.
+
+**Bước 3 — mở tập test, đúng một lần.** 46.127 hồ sơ chưa từng bị chạm ở task 1–13.
+
+| Chỉ số | Validation | **Test** | Chênh |
+|---|---:|---:|---:|
+| PR-AUC | 0,1696 | **0,1714** | −0,0018 |
+| ROC-AUC | 0,6935 | **0,6952** | −0,0017 |
+| F1 lớp 1 | 0,2474 | **0,2494** | −0,0020 |
+| Recall lớp 1 | 0,3990 | **0,4039** | −0,0048 |
+| Precision lớp 1 | 0,1793 | **0,1804** | −0,0011 |
+| Brier | 0,0710 | **0,0709** | +0,0001 |
+| Chênh hiệu chuẩn | −0,0004 | **−0,0009** | +0,0005 |
+
+**Chênh lệch tổng quát hoá = −0,0018**, tức test *nhỉnh hơn* validation. Không có
+dấu hiệu việc chọn model đã bám vào validation — đúng như mong đợi, vì mọi lựa
+chọn đều dựa trên PR-AUC chứ không phải dò siêu tham số.
+
+Confusion matrix trên test tại ngưỡng 0,1303: bắt được **1.504 / 3.724** ca vỡ nợ
+(recall 40,4%), đổi bằng 6.831 hồ sơ tốt bị gắn nhãn rủi ro.
+
+**Bộ FULL trên test — chỉ để báo cáo §7.2:** PR-AUC **0,2472** so với 0,1714 của
+bộ triển khai (**+0,0758**). Con số cuối cùng cho mục *"phân tích tính khả thi
+triển khai"*: model deploy được mất khoảng **44%** năng lực dự báo so với model
+dùng đủ dữ liệu Home Credit.
+
+> **Một hiệu ứng nhỏ đáng ghi:** PR-AUC nhích từ 0,1711 xuống 0,1696 sau hiệu
+> chuẩn. Isotonic là phép biến đổi đơn điệu nên về nguyên tắc giữ nguyên thứ tự
+> — nhưng nó tạo ra các đoạn phẳng, và các hồ sơ rơi vào cùng một đoạn trở thành
+> **đồng hạng**. Đó là cái giá rất nhỏ để đổi lấy xác suất đọc được đúng nghĩa.
+
+**Chưa export.** `decision.json` ghi `exported: false`; `select.py` có test chặn
+mọi hàm tên chứa `export`/`dump`.
+
+### 7.0m Feature importance (task 13) — ba cách đo, chẩn đoán không phải chọn feature
+
+Một cột "importance" duy nhất rất dễ bị đọc như chân lý, trong khi ba phương pháp
+đo ba thứ khác nhau và **thường xếp hạng khác nhau**:
+
+| Cách đo | Đo gì | Điểm yếu |
+|---|---|---|
+| built-in (impurity) | cây giảm được bao nhiêu tạp chất khi chẻ theo cột | **thiên vị cột nhiều giá trị** — cột liên tục có hàng nghìn điểm cắt khả dĩ, cột nhị phân chỉ có một |
+| permutation | xáo trộn cột rồi đo PR-AUC tụt bao nhiêu | đắt; nhưng đo đúng **đóng góp vào năng lực dự báo** |
+| SHAP | trung bình \|đóng góp\| ở mức từng hồ sơ | cho cả hướng tác động — thứ tầng `llm` cần (§7.4) |
+
+**Bộ FULL — XGBoost, top 6 theo permutation:**
+
+| Feature | PR-AUC tụt |
+|---|---:|
+| `EXT_SOURCE_2` | 0,0588 |
+| `EXT_SOURCE_3` | 0,0405 |
+| **`credit_term_implied`** | **0,0277** |
+| `EXT_SOURCE_1` | 0,0197 |
+| `DAYS_BIRTH` | 0,0164 |
+| `credit_goods_markup` | 0,0101 |
+
+Ba cột `EXT_SOURCE_*` chiếm ba trong bốn vị trí đầu — **xác nhận bằng số** điều
+§7.2 giả định từ đầu và §7.0l đã đo qua chênh lệch PR-AUC: đó chính là thứ bộ
+RÚT GỌN mất đi.
+
+**Bộ RÚT GỌN — XGBoost, top 6 theo permutation:**
+
+| Feature | PR-AUC tụt |
+|---|---:|
+| **`credit_term_implied`** | **0,0599** |
+| **`bureau_credit_income_ratio`** | 0,0385 |
+| **`bureau_debt_income_ratio`** | 0,0302 |
+| **`bureau_active_loan_count`** | 0,0130 |
+| `dti` | 0,0110 |
+| `age_years` | 0,0100 |
+
+> **Hai kết quả đáng chú ý cho phần thiết kế sản phẩm:**
+>
+> 1. **`credit_term_implied` (`AMT_CREDIT / AMT_ANNUITY`) đứng đầu ở CẢ HAI bộ**
+>    theo cả ba cách đo. Đây là feature task 3 mới thêm, và nó vượt cả `dti` lẫn
+>    `credit_income_ratio` — hai tỉ lệ vốn được §2.1b coi là trục chính.
+> 2. **Ba trong bốn vị trí tiếp theo của bộ rút gọn là nhóm bureau**, tức đúng
+>    **mục C của form "Thông tin khoản vay"**. Quyết định gộp `bureau.csv` ở
+>    task 1 (trước đó §4.3 xếp nó vào diện "để dành") là quyết định đem lại phần
+>    lớn sức mạnh cho model deploy được.
+
+**28/82 feature của bộ full có permutation importance ÂM** — xáo trộn chúng làm
+model *tốt lên*, tức chúng chỉ đang thêm nhiễu. Bộ rút gọn chỉ có 3/17. Đây là
+thông tin cho vòng sau, **không** dùng để cắt feature ngay (xem dưới).
+
+**Chỗ ba cách đo bất đồng nhất** ở bộ rút gọn là `bureau_overdue_income_ratio`:
+built-in xếp **#7**, permutation xếp **#17**. Đúng dạng thiên vị impurity —
+cột này liên tục và lệch nặng nên cây hay chẻ theo nó, nhưng lát cắt đó không
+giúp dự báo thêm.
+
+> ⚠️ **Đây là CHẨN ĐOÁN, không phải bước chọn feature.** Permutation và SHAP đo
+> trên **validation**. Dùng chúng để bỏ bớt feature rồi train lại và chấm lại
+> trên chính tập đó là **rò rỉ** — validation khi ấy đã tham gia quyết định
+> feature nào tồn tại, và chỉ số thu được sẽ lạc quan mà không có dấu hiệu gì.
+> Việc chọn feature có giám sát đã có chỗ của nó: `SupervisedFeatureSelector`
+> nằm TRONG Pipeline nên chỉ nhìn thấy tập train (§4.3e). Feature set **giữ
+> nguyên** sau task 13; metadata ghi `feature_selection_changed: false`, có test
+> canh.
+
+> **Một bất định thật đã tìm ra khi chạy test:** `test_random_forest_is_reproducible`
+> trượt đúng một lần, lúc máy đang chạy song song tác vụ phân tích importance.
+> Nguyên nhân: với `n_jobs=-1`, `predict_proba` cộng dồn kết quả các cây theo
+> thứ tự do bộ lập lịch quyết định, mà cộng số thực không kết hợp. Đo được lệch
+> tối đa **1,1e-16** — dưới ngưỡng biểu diễn của `float64`. PR-AUC là chỉ số
+> **xếp hạng** nên chênh lệch đó đủ để đảo thứ tự hai hồ sơ sát nhau và làm chỉ
+> số nhích. Đã đặt dung sai tường minh `abs=1e-9` kèm giải thích — vẫn chặt hơn
+> nhiều so với yêu cầu tái lập của F06 task 6 (trùng tới 4 chữ số thập phân).
+
+### 7.0l So sánh 8 model (task 12) — xếp hạng trên validation
+
+**Bảng xếp hạng, tính RIÊNG trong từng bộ feature.** Xếp chung thì bốn model
+của bộ FULL chiếm hết đầu bảng và bộ deploy được — thứ thật sự chạy trong sản
+phẩm — không bao giờ hiện ra.
+
+| Hạng | Bộ FULL | PR-AUC | | Bộ RÚT GỌN | PR-AUC |
+|---:|---|---:|---|---|---:|
+| 1 | **xgboost** | **0,2533** | | **xgboost** | **0,1711** |
+| 2 | bagging | 0,2311 | | bagging | 0,1608 |
+| 3 | random_forest | 0,2293 | | random_forest | 0,1505 |
+| 4 | decision_tree | 0,1914 | | decision_tree | 0,1445 |
+
+#### Chênh lệch có thật hay chỉ là nhiễu — bootstrap thay cho K-Fold
+
+Task 5 bỏ K-Fold nên không có `pr_auc_std` giữa các fold để quy chiếu. Task 9 đã
+gặp đúng vấn đề đó và **để ngỏ**: Random Forest thua Bagging 0,0018 ở bộ full —
+thật hay nhiễu?
+
+Bỏ trống câu hỏi này thì bảng xếp hạng dẫn tới kết luận sai: xếp theo một con số
+mà không biết nó dao động bao nhiêu chẳng khác gì xếp theo nhiễu.
+
+**Bootstrap CẶP ĐÔI trên tập validation trả lời được, không cần K-Fold.** Cặp đôi
+là điểm mấu chốt: hai model được chấm trên **cùng 46.127 hồ sơ**, nên phần dao
+động do tập validation tác động lên cả hai và **tự triệt tiêu khi lấy hiệu**. So
+hai khoảng tin cậy rời nhau là phép so quá bảo thủ — nó kết luận "không phân biệt
+được" cho cả những chênh lệch có thật.
+
+**Các cặp đứng liền nhau** (1.000 lần lấy mẫu, tin cậy 95%):
+
+| Bộ | Cặp | Chênh | Khoảng tin cậy | Kết luận |
+|---|---|---:|---|---|
+| full | xgboost − bagging | +0,0222 | [+0,0144 · +0,0304] | phân biệt được |
+| full | **bagging − random_forest** | **+0,0018** | **[−0,0049 · +0,0085]** | ⚠️ **CHƯA phân biệt được** |
+| full | random_forest − decision_tree | +0,0379 | [+0,0293 · +0,0455] | phân biệt được |
+| rút gọn | xgboost − bagging | +0,0102 | [+0,0045 · +0,0151] | phân biệt được |
+| rút gọn | bagging − random_forest | +0,0103 | [+0,0053 · +0,0156] | phân biệt được |
+| rút gọn | random_forest − decision_tree | +0,0060 | [+0,0002 · +0,0123] | phân biệt được |
+
+> **Câu trả lời cho task 9: khoảng chênh 0,0018 KHÔNG phân biệt được với nhiễu** —
+> khoảng tin cậy chứa 0. Hạng 2 và hạng 3 ở bộ full là **đồng hạng trên thực tế**.
+> Báo cáo phải viết đúng như vậy, không được xếp thứ tự hai model theo một con số
+> nhỏ hơn sai số của chính phép đo.
+
+**XGBoost dẫn đầu một cách chắc chắn ở CẢ HAI bộ** — mọi khoảng tin cậy so với ba
+thuật toán còn lại đều nằm hoàn toàn trên 0, thắng 100% số lần lấy mẫu.
+
+#### Full vs Rút gọn — phân tích tính khả thi triển khai (§7.2)
+
+| Thuật toán | PR-AUC full | PR-AUC rút gọn | Chênh | Tương đối | Chắc chắn? |
+|---|---:|---:|---:|---:|---|
+| decision_tree | 0,1914 | 0,1445 | +0,0469 | +32,4% | ✅ |
+| bagging | 0,2311 | 0,1608 | +0,0703 | +43,7% | ✅ |
+| random_forest | 0,2293 | 0,1505 | +0,0788 | +52,4% | ✅ |
+| **xgboost** | 0,2533 | 0,1711 | **+0,0822** | **+48,1%** | ✅ |
+
+Đây là **cái giá của việc form không thu được `EXT_SOURCE_1/2/3`**, đo trên cả bốn
+thuật toán và cả bốn đều chắc chắn (khoảng tin cậy không chứa 0). Bộ deploy được
+mất khoảng **một phần ba tới một nửa** năng lực dự báo so với bộ dùng đủ dữ liệu
+Home Credit.
+
+> **Bootstrap KHÔNG tương đương K-Fold.** Nó đo dao động do **mẫu validation**;
+> CV đo thêm dao động do **mẫu train**. Nó trả lời đúng câu hỏi của task 12 —
+> "hai model chênh ngần này có phân biệt được không" — nhưng không thay thế được
+> CV trong việc ước lượng độ ổn định của chính quá trình huấn luyện. Ghi rõ giới
+> hạn này trong báo cáo.
+
+**Ranh giới với task 14:** *"dẫn đầu"* ≠ *"được chọn"*. Task 12 chỉ xếp hạng theo
+PR-AUC. Task 14 mới chốt, và phải cân nhắc thêm **hiệu chuẩn** (XGBoost gap
++0,2886 — thấp nhất nhưng vẫn lớn), **mức học thuộc** (XGBoost gap train−val
+0,1314, gấp bốn lần Random Forest) và **khả năng triển khai**. `compare.py` có test
+canh rằng metadata ghi `final_selection_done_here: false`.
+
+### 7.0k Đánh giá 8 model (task 11) — trên validation, chưa xếp hạng
+
+**Bốn nhóm chỉ số, cần cả bốn:**
+
+| Nhóm | Đo gì | Vì sao không bỏ được |
+|---|---|---|
+| 1 · không phụ thuộc ngưỡng | PR-AUC · ROC-AUC | Khả năng XẾP HẠNG rủi ro, độc lập chỗ cắt |
+| 2 · tại một ngưỡng | F1 / precision / recall lớp 1 · confusion | Thứ người dùng thật sự gặp |
+| 3 · hiệu chuẩn | Brier · đường tin cậy | §8.1 ra quyết định theo NGƯỠNG xác suất |
+| 4 · theo ngân sách rà soát | bắt được bao nhiêu khi soi k% | Gần vận hành nhất, **không cần chọn ngưỡng** |
+
+**Bảng chính** (ngưỡng báo cáo 0,5 — chỉ là quy ước để có một cột so được):
+
+| Thuật toán | Bộ | PR-AUC | ROC-AUC | F1 lớp 1 | Recall lớp 1 | Brier | Accuracy |
+|---|---|---:|---:|---:|---:|---:|---:|
+| decision_tree | reduced | 0,1445 | 0,6423 | 0,1994 | 0,5913 | 0,2236 | 0,6168 |
+| decision_tree | full | 0,1914 | 0,7027 | 0,2299 | 0,6453 | 0,2077 | 0,6510 |
+| bagging | reduced | 0,1608 | 0,6765 | 0,2255 | 0,5470 | 0,2032 | 0,6967 |
+| bagging | full | 0,2311 | 0,7471 | 0,2687 | 0,6122 | 0,1810 | 0,7310 |
+| random_forest | reduced | 0,1505 | 0,6680 | 0,2102 | 0,6034 | 0,2227 | 0,6339 |
+| random_forest | full | 0,2293 | 0,7492 | 0,2636 | **0,6716** | 0,2017 | 0,6971 |
+| xgboost | reduced | 0,1711 | 0,6916 | 0,2311 | 0,5811 | 0,2017 | 0,6879 |
+| xgboost | full | **0,2533** | **0,7639** | **0,2858** | 0,6292 | **0,1717** | 0,7462 |
+
+Bảng giữ nguyên thứ tự nạp, **không sắp xếp** — sắp theo PR-AUC là biến bảng
+đánh giá thành bảng xếp hạng, và người đọc sẽ dừng ở dòng đầu. Xếp hạng là task 12.
+
+**Phát hiện quan trọng nhất — mọi model đều NÓI QUÁ về rủi ro:**
+
+| Model (bộ full) | gap trung bình | gap lớn nhất | Brier |
+|---|---:|---:|---:|
+| decision_tree | +0,3164 | +0,5772 | 0,2077 |
+| bagging | +0,3111 | +0,5001 | 0,1810 |
+| random_forest | +0,3555 | +0,4528 | 0,2017 |
+| xgboost | **+0,2886** | +0,5104 | **0,1717** |
+
+`gap = model nói − thực tế`, dương ở **cả 8 model**. Đây là hệ quả **bắt buộc**
+của task 4: `class_weight='balanced'` và `scale_pos_weight` đẩy xác suất lớp
+dương lên trên tỉ lệ nền thật. Một hồ sơ được chấm "60% rủi ro" thực tế chỉ vỡ
+nợ ở mức thấp hơn nhiều.
+
+> Đây chính là lý do §7.4 yêu cầu **hiệu chuẩn TRƯỚC khi đặt ngưỡng**, và là lý
+> do ngưỡng `LOW_RISK/HIGH_RISK` không thể chốt ở task 11 hay 12. Chọn ngưỡng
+> trên xác suất chưa hiệu chuẩn thì con số ngưỡng **không mang ý nghĩa xác suất
+> nào** — "ngưỡng 0,35" sẽ không có nghĩa "35% khả năng vỡ nợ".
+
+**Bắt được bao nhiêu ca vỡ nợ nếu chỉ soi k% hồ sơ rủi ro nhất** (bộ full):
+
+| Thuật toán | soi 5% | 10% | 20% | 30% | 50% |
+|---|---:|---:|---:|---:|---:|
+| decision_tree | 0,165 | 0,277 | 0,449 | 0,575 | 0,753 |
+| bagging | 0,194 | 0,311 | 0,501 | 0,631 | 0,813 |
+| random_forest | 0,191 | 0,314 | 0,499 | 0,636 | 0,814 |
+| xgboost | **0,211** | **0,337** | **0,527** | **0,660** | **0,828** |
+
+Cách đọc gần vận hành nhất và **không cần chọn ngưỡng** — chỉ cần một ngân sách
+rà soát. Soi 10% hồ sơ rủi ro nhất bắt được 33,7% số ca vỡ nợ, tức **gấp 3,4 lần**
+soi ngẫu nhiên.
+
+**Quét ngưỡng** (`threshold_sweep`) cho thấy F1 lớp dương của cả bốn thuật toán
+đạt đỉnh quanh **0,55–0,60** chứ không phải 0,5. Đây là **nguyên liệu cho task
+14**, không phải quyết định — hàm quét cố ý không trả về ngưỡng nào.
+
+> **Ràng buộc phạm vi cài bằng test:** `evaluate.py` không có hàm nào tên chứa
+> `best` / `select` / `rank` / `winner`. Trộn đánh giá với xếp hạng thì phần
+> đánh giá bị rút gọn thành "cái nào PR-AUC cao nhất" — mà đó đúng là chỗ bỏ sót
+> học thuộc, hiệu chuẩn lệch, và recall cao đổi bằng precision thấp.
+
+Artifact được **nạp lại**, không train lại: train lại tốn ~12 phút và có nguy cơ
+ra số khác nếu một tham số lệch, khi đó bảng đánh giá không còn mô tả đúng những
+model đã báo cáo ở task 7–10.
+
+### 7.0j XGBoost (task 10) — chấm trên validation
+
+| Bộ | Feature | PR-AUC | lift | ROC-AUC | F1 lớp 1 | Recall lớp 1 | gap train−val |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rút gọn | 17 | **0,1711** | 2,12× | 0,6916 | 0,2311 | 0,5811 | +0,1020 |
+| full | 82 | **0,2533** | **3,14×** | **0,7639** | **0,2858** | 0,6292 | +0,1314 |
+
+**Bốn thuật toán đã train xong** (PR-AUC validation — bảng so sánh chính thức là
+task 12, đây chỉ để đối chiếu):
+
+| Bộ | Decision Tree | Bagging | Random Forest | XGBoost |
+|---|---:|---:|---:|---:|
+| rút gọn | 0,1445 | 0,1608 | 0,1505 | **0,1711** |
+| full | 0,1914 | 0,2311 | 0,2293 | **0,2533** |
+
+XGBoost dẫn đầu ở cả hai bộ, đúng kỳ vọng của §6.3 (Boosting giảm bias). Nhưng
+nó cũng **học thuộc nhiều nhất**: gap 0,1314 so với 0,0321 của Random Forest —
+gấp bốn lần. Task 11–12 phải đọc hai con số này cùng nhau.
+
+**Vì sao KHÔNG ép `n_estimators = 50` cho "công bằng" với task 8, 9.** Boosting
+và bagging dùng cây theo hai cách khác hẳn: bagging trung bình 50 cây **độc lập**,
+mỗi cây đã là model đủ mạnh; boosting cộng dồn hàng trăm cây **nông**, mỗi cây chỉ
+sửa phần dư của các cây trước. Bắt hai bên cùng số cây là so số lượng của hai thứ
+không cùng đơn vị. Cái phải bằng nhau là **điều kiện thí nghiệm** — phép chia,
+Pipeline, tỉ số phạt, seed, bộ chỉ số — chứ không phải siêu tham số nội bộ của
+từng họ.
+
+**Cấu hình đặt trước, không dò trên validation:** `learning_rate=0.1` +
+`n_estimators=200` thay cho mặc định `0.3` + `100` — bước nhỏ hơn và nhiều bước
+hơn là cách khắc phục sách vở cho boosting học thuộc. `subsample=0.8`,
+`colsample_bytree=0.8` là điều tiết chuẩn của boosting ngẫu nhiên.
+`eval_metric='aucpr'` khớp chỉ số chọn model; để mặc định `logloss` thì thứ
+XGBoost tối ưu bên trong lệch khỏi thứ đem đi so ở task 12.
+
+> **KHÔNG dùng early stopping.** Nó cần một tập để dừng, mà tập đó ở đây chỉ có
+> thể là validation — chính tập dùng để báo cáo và để chọn model ở task 12. Dừng
+> theo nó rồi lại chấm trên nó là chọn tham số trên tập đánh giá, và con số báo
+> cáo thành lạc quan hơn thực tế. Có test canh.
+
+**Cân bằng lớp qua `scale_pos_weight` = 11,387466** (tính từ riêng tập train), vì
+XGBoost không có `class_weight`. Test canh lại rằng con số này trùng khít tỉ số
+trọng số mà `class_weight='balanced'` sinh ra cho ba thuật toán kia — đó là điều
+kiện để bốn model được so trên cùng một sân.
+
+### 7.0i Random Forest (task 9) — chấm trên validation
+
+| Bộ | Feature | PR-AUC | lift | ROC-AUC | F1 lớp 1 | Recall lớp 1 | gap train−val |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rút gọn | 17 | 0,1505 | 1,86× | 0,6680 | 0,2102 | 0,6034 | +0,0373 |
+| full | 82 | 0,2293 | 2,84× | **0,7492** | 0,2636 | **0,6716** | **+0,0321** |
+
+**Ba thuật toán trên cùng một phép chia** (PR-AUC validation):
+
+| Bộ | Decision Tree | Bagging | Random Forest |
+|---|---:|---:|---:|
+| rút gọn | 0,1445 | **0,1608** | 0,1505 |
+| full | 0,1914 | **0,2311** | 0,2293 |
+
+> ⚠️ **Random Forest KHÔNG thắng Bagging ở đây** — thấp hơn 0,0103 (−6,4%) ở bộ
+> rút gọn và 0,0018 (−0,8%) ở bộ full. Ghi lại đúng như đo được, không làm tròn
+> theo kỳ vọng.
+>
+> Cách đọc: `max_features='sqrt'` ép mỗi lát cắt chỉ xét √p cột — 4/17 ở bộ rút
+> gọn, 9/82 ở bộ full. Khi tín hiệu tập trung ở vài cột (`EXT_SOURCE_*`, `dti`),
+> việc buộc phần lớn lát cắt bỏ qua chúng làm cây yếu đi nhiều hơn phần lợi từ
+> việc các cây bớt giống nhau. Bộ rút gọn thiệt nặng hơn đúng như dự đoán: 17
+> cột thì mỗi lát cắt chỉ còn 4.
+>
+> **Chênh lệch 0,0018 ở bộ full KHÔNG kết luận được.** Vì bỏ K-Fold (§7.0e), mỗi
+> chỉ số là một điểm đo trên 46.127 hồ sơ, không có độ lệch giữa các fold để quy
+> chiếu. Task 12 phải phát biểu đúng như vậy.
+
+Bù lại, Random Forest **học thuộc ít nhất** trong ba thuật toán (gap 0,0321 ở bộ
+full so với 0,0383 của Bagging và 0,0522 của cây đơn) và có **recall lớp dương
+cao nhất** (0,6716). Ở ngưỡng 0,5, nó bắt được nhiều ca vỡ nợ hơn Bagging.
+
+**Điều kiện để chênh lệch đọc được đúng:** RF giữ nguyên MỌI tham số của task 8
+trừ `max_features` — cùng 50 cây, cùng `min_samples_leaf = 215`,
+`max_depth=None`, cùng tỉ số phạt, cùng seed, cùng phép chia. Vì vậy khoảng cách
+giữa hai dòng đo **đúng** đóng góp của việc lấy mẫu feature, không lẫn thứ gì khác.
+
+Dùng `class_weight='balanced'` chứ **không** phải `'balanced_subsample'`: bản
+subsample tính lại trọng số trên từng mẫu bootstrap nên tỉ số phạt dao động quanh
+11,39 thay vì đúng bằng nó — khi đó RF không còn nhận cùng mức phạt với ba thuật
+toán kia và task 12 so trên hai sân khác nhau. Có test canh riêng.
+
+### 7.0h Bagging Classifier (task 8) — chấm trên validation
+
+| Bộ | Feature | PR-AUC | lift | ROC-AUC | F1 lớp 1 | Recall lớp 1 | Brier |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rút gọn | 17 | 0,1608 | 1,99× | 0,6765 | 0,2255 | 0,5470 | 0,2032 |
+| full | 82 | **0,2311** | **2,86×** | 0,7471 | 0,2687 | 0,6122 | 0,1810 |
+
+**Phần do giảm phương sai đem lại** — so trực tiếp với cây đơn ở task 7:
+
+| Bộ | Decision Tree | Bagging | Chênh |
+|---|---:|---:|---:|
+| rút gọn | 0,1445 | 0,1608 | **+0,0163 (+11,3%)** |
+| full | 0,1914 | 0,2311 | **+0,0397 (+20,7%)** |
+
+Con số này đọc được **chính xác** là đóng góp của bootstrap aggregation, vì cây
+con dùng ĐÚNG siêu tham số của task 7 (`min_samples_leaf = 215`, `max_depth=None`)
+và mọi thứ khác giữ nguyên: cùng phép chia, cùng Pipeline, cùng tỉ số phạt, cùng
+seed. Cho cây con một cấu hình khác thì chênh lệch lẫn cả phần "cây được điều
+tiết khác đi".
+
+Học thuộc cũng giảm đúng như lý thuyết: gap train−validation ở bộ full **0,0522 →
+0,0383**.
+
+**Ba quyết định giữ cho bảng so sánh đọc được:**
+
+1. **`n_estimators = 50` dùng chung với Random Forest (task 9).** Bagging và RF
+   khác nhau đúng ở chỗ RF lấy mẫu thêm feature tại mỗi lát cắt; cho hai bên số
+   cây khác nhau thì chênh lệch lẫn cả phần "nhiều cây hơn". Chọn 50 vì phương
+   sai của trung bình giảm theo 1/n — phần lợi lớn nhất nằm ở vài chục cây đầu,
+   chi phí thì tăng tuyến tính. Đây là lập luận về dạng đường cong, không phải
+   con số dò từ validation.
+2. **`max_features = 1.0`** — ranh giới với Random Forest. Bagging cũng lấy mẫu
+   feature thì hai thuật toán trùng nhau và §6.3 mất chỗ đối chiếu hai cơ chế.
+3. **`class_weight` đặt trên CÂY CON**, không phải trên `BaggingClassifier` —
+   lớp đó không có tham số này. Đặt nhầm lên ngoài sẽ `TypeError`; tệ hơn là nếu
+   bị nuốt trong `**kwargs` thì model train mất cân bằng trong khi bảng cấu hình
+   vẫn ghi là đã cân bằng, và task 12 so một model có trọng số với ba model
+   không có. Có test canh riêng.
+
+### 7.0g Decision Tree (task 7) — chấm trên validation
+
+| Bộ | Feature | PR-AUC | lift | ROC-AUC | F1 lớp 1 | Recall lớp 1 | Accuracy |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| rút gọn | 17 | 0,1445 | 1,79× | 0,6423 | 0,1994 | 0,5913 | 0,6168 |
+| full | 82 | **0,1914** | **2,37×** | 0,7027 | 0,2299 | 0,6453 | 0,6510 |
+
+Cả hai vượt mốc lift ≥ 1,5 của task 6 → cây thật sự học được từ feature.
+
+**Chênh lệch FULL − RÚT GỌN = 0,0469 PR-AUC (+32% tương đối).** Đây là con số
+đầu tiên cho mục *"phân tích tính khả thi triển khai"* (§7.2) — cái giá của việc
+form không thu được `EXT_SOURCE_1/2/3`. Ba thuật toán còn lại sẽ cho ba cặp số
+nữa; kết luận phải dựa trên cả bốn, không phải riêng cây đơn.
+
+**Học thuộc tới đâu** — đây là vai trò của cây đơn trong báo cáo (§6.3):
+
+| Bộ | PR-AUC train | PR-AUC validation | gap |
+|---|---:|---:|---:|
+| rút gọn | 0,1896 | 0,1445 | +0,0451 |
+| full | 0,2436 | 0,1914 | +0,0522 |
+
+Gap ~0,05 là vừa phải — công của `min_samples_leaf`. **Siêu tham số suy từ CỠ
+DỮ LIỆU, không phải dò được:** một lá phải chứa ≥ 0,1% dân số train, tức 215 hồ
+sơ, tức ~17 ca vỡ nợ ở tỉ lệ 8,07%. Dưới mức đó thì xác suất của lá là ước lượng
+từ vài quan sát — con số vô nghĩa mà `predict_proba` vẫn trả về đều đặn.
+`max_depth=None` để `min_samples_leaf` một mình điều tiết; thêm một `max_depth`
+cụ thể thì phải chọn con số, mà chọn thì phải thử — và thử là việc của bước tinh
+chỉnh, không phải task 7.
+
+> **Accuracy 0,62 THẤP HƠN baseline 0,85 — và đó là điều đúng.** Với
+> `class_weight='balanced'`, model đánh đổi rất nhiều dương-tính-giả để bắt được
+> **59–65% số ca vỡ nợ** (baseline chỉ 8,7%). Đây chính là lý do §7.3 cấm dùng
+> accuracy để kết luận: nhìn mỗi accuracy thì model này "tệ hơn đoán bừa".
+
+**Ba ràng buộc chống rò rỉ được cài bằng cấu trúc, không bằng lời dặn:**
+
+1. `TrainingData` **không có** thuộc tính nào chứa tập test — không có gì để lỡ tay.
+2. `fit_and_evaluate()` không nhận tham số test — muốn chạm phải sửa chữ ký hàm.
+3. Pipeline được **fit lại** trong từng lần train, không nạp `.joblib` của task 3
+   (vốn fit trên phép chia 85/15 khác). Pipeline *là một phần của quá trình huấn
+   luyện* — nó học trung vị, phân vị, bảng hạng mục từ tập train.
+
+Tỉ số phạt lấy từ `imbalance_params()` của task 4, **không hardcode** ở task
+train: một chỗ duy nhất quyết định thì bốn thuật toán không thể lệch nhau.
+
+> Artifact ở `runs/ml02_models/` là **trung gian**, không phải export —
+> `artifact_kind: "intermediate"` ghi thẳng trong metadata. Nó tồn tại để task
+> 11–14 khỏi train lại. Export là task 15.
+
+### 7.0f Baseline (task 6) — chấm trên validation, test vẫn khoá
+
+| | PR-AUC | lift | ROC-AUC | F1 lớp 1 | Recall lớp 1 | Accuracy |
+|---|---:|---:|---:|---:|---:|---:|
+| **`baseline_stratified`** ← mốc chính thức | **0,0813** | 1,01 | 0,5036 | 0,0873 | 0,0873 | 0,8527 |
+| `reference_most_frequent` *(tham chiếu)* | 0,0807 | 1,00 | 0,5000 | 0,0000 | **0,0000** | **0,9193** |
+
+**Sàn của PR-AUC là TỈ LỆ DƯƠNG (0,0807), KHÔNG phải 0,5.** Đây là chỗ đọc nhầm
+nhiều nhất ở bài toán mất cân bằng:
+
+| | Đoán bừa cho ra |
+|---|---|
+| ROC-AUC | **0,50** — sàn 0,5, ai cũng biết |
+| PR-AUC | **0,0807** — bằng tỉ lệ dương, KHÔNG phải 0,5 |
+
+Nên một model đạt PR-AUC 0,20 không hề "tệ hơn ngẫu nhiên" — nó gấp **2,5 lần**
+mức ngẫu nhiên. Thiếu hàng baseline trong bảng thì cả người viết lẫn hội đồng đều
+dễ kết luận ngược. Cột `pr_auc_lift` tính sẵn tỉ số đó.
+
+Đo được khớp lý thuyết: PR-AUC baseline **0,0813** so với tỉ lệ dương 0,0807
+(lệch 0,0006), ROC-AUC **0,5036**.
+
+**Mốc cho task 7–10:** model đạt **PR-AUC ≥ 0,1211** (lift ≥ 1,5) mới coi là học
+được gì từ feature.
+
+> **Hàng `most_frequent` không phải baseline** — nó là bằng chứng cho §7.3:
+> accuracy **91,93%** mà **recall lớp dương = 0,0000**, tức không bắt được một ca
+> vỡ nợ nào. Có nó trong bảng thì câu "accuracy 92%" không còn nghe như một kết
+> quả tốt.
+
+`binary_metrics()` báo cáo **riêng lớp dương** thay vì trung bình macro: với 8,07%
+dương, macro-recall gộp cả lớp âm nên một model bỏ rơi hoàn toàn lớp dương vẫn có
+macro-recall ~0,5 — nghe không tệ, trong khi nó vô dụng. Ngưỡng 0,5 dùng ở đây chỉ
+để tính các chỉ số cần nhãn cứng; **ngưỡng nghiệp vụ `LOW_RISK/HIGH_RISK` chốt ở
+task 14** sau khi hiệu chuẩn.
+
+Baseline **không đọc feature nào** (`DummyClassifier` bỏ qua `X`), nên nó giống
+hệt nhau ở bộ FULL và bộ RÚT GỌN — đo một lần, dùng chung cho cả hai bảng so sánh.
+
+### 7.0e Chia train/validation/test (task 5)
+
+**70 / 15 / 15, phân tầng theo nhãn, seed 42. KHÔNG dùng K-Fold Cross-Validation.**
+
+| Tập | Số hồ sơ | Tỉ lệ | Dương | Tỉ lệ dương | Lệch |
+|---|---:|---:|---:|---:|---:|
+| train | 215.257 | 70,00% | 17.377 | 8,07% | 0,00σ |
+| validation | 46.127 | 15,00% | 3.724 | 8,07% | 0,00σ |
+| test | 46.127 | 15,00% | 3.724 | 8,07% | 0,00σ |
+
+Vai trò: **train** fit model · **validation** căn cứ chọn model (so PR-AUC giữa
+4 thuật toán, và là nơi tinh chỉnh siêu tham số nếu cần) · **test** khoá lại,
+chỉ mở đúng một lần ở task 14.
+
+> **Cái mất khi bỏ CV, ghi ra để đọc số cho đúng:** mỗi chỉ số là MỘT điểm đo
+> trên 46.127 hồ sơ validation, không phải trung bình 5 lần kèm độ lệch. Không
+> còn `pr_auc_std`, nên chênh vài phần nghìn giữa hai model **không** quy chiếu
+> được về độ nhiễu. Task 12 phải phát biểu đúng như vậy — đừng nói "hơn hẳn" cho
+> một khoảng chênh không đo được độ tin cậy.
+
+**Cắt hai lần, phải quy đổi tỉ lệ lần hai.** Lần đầu tách `test`, lần sau tách
+`validation` khỏi phần còn lại — mà phần còn lại chỉ là 85%, nên tỉ lệ lần hai
+là `0,15 / 0,85 = 17,65%`. Lấy thẳng 0,15 thì validation chỉ được **12,75%** và
+train phình lên 72,25%. Sai này khó thấy vì 12,75% vẫn "trông như" 15%; có test
+canh riêng.
+
+**Lưu danh sách `SK_ID_CURR` chứ không chỉ lưu seed.** Phép chia là tất định,
+nhưng chỉ khi đầu vào không đổi — thêm một dòng hay chạy lại task 2 là cả ba tập
+đổi hết mà không có gì báo. Khi đó model của task 7 và task 10 được train trên
+hai tập khác nhau, còn bảng so sánh ở task 12 vẫn trông bình thường. Task 6 → 15
+**bắt buộc** đi qua `load_split()`, không tự chia lại.
+
+**Năm phép kiểm, tất cả đạt:** ba tập rời nhau (0 hồ sơ giao) · phủ kín 307.511
+dòng · tỉ lệ đúng 70/15/15 · tỉ lệ dương lệch 0,00σ · train không còn dòng
+`INVALID_ROW`.
+
+**`scale_pos_weight` theo tập:** train **11,3875** · validation 11,3864 · test
+11,3864. Task 7–10 dùng con số của **train**; số 11,3872 đo trên toàn bộ dataset
+ở task 4 chỉ để báo cáo.
+
+> ⚠️ **Phép chia 85/15 trong `build_features_ml02.py` (task 3) KHÔNG phải phép
+> chia chính thức.** Nó chỉ để chứng minh Pipeline `fit` được trên train và
+> `transform` được trên test. Hai artifact `.joblib` của task 3 vì vậy được fit
+> trên một tập train khác — task 7–10 phải **fit lại Pipeline trên tập train của
+> task 5**, và đó cũng là cách đúng: Pipeline là một phần của quá trình huấn
+> luyện từng model, không phải một bước dùng chung fit sẵn.
+
+### 7.0d Xử lý mất cân bằng lớp (task 4)
+
+| | |
+|---|---:|
+| Số hồ sơ | 307.511 |
+| Dương (khó khăn trả nợ) | 24.825 |
+| Tỉ lệ dương | **8,0729%** |
+| `scale_pos_weight` | **11,3872** |
+| Accuracy nếu đoán toàn `0` | **91,9271%** |
+
+**Phương án: học có trọng số, KHÔNG lấy mẫu lại.** Cả bốn thuật toán nhận cùng
+một tỉ số phạt 11,3872 — sai một hồ sơ dương bị phạt gấp 11,39 lần sai một hồ sơ
+âm. Không sinh thêm dòng, không bỏ bớt dòng.
+
+| Thuật toán | Cơ chế |
+|---|---|
+| Decision Tree | `class_weight='balanced'` trên chính model |
+| **Bagging** | `class_weight='balanced'` trên **estimator con** — `BaggingClassifier` KHÔNG có tham số này |
+| Random Forest | `class_weight='balanced'` trên chính model |
+| XGBoost | `scale_pos_weight` tính từ tập train |
+
+> **Đã kiểm bằng số chứ không suy luận:** `class_weight='balanced'` cho trọng số
+> lớp 0 = 0,543909 và lớp 1 = 6,193575, **tỉ số 11,387150** — trùng khít
+> `scale_pos_weight` tới sáu chữ số. Không có đẳng thức này thì XGBoost và ba
+> thuật toán sklearn đang học trên hai mức phạt khác nhau, và bảng so sánh ở
+> task 12 so nhầm mà không có gì để lộ ra.
+
+**Bốn lý do không dùng SMOTE / oversample / undersample**, xếp theo mức quan
+trọng với chính đồ án này:
+
+1. **Phá hiệu chuẩn xác suất — mà hiệu chuẩn là yêu cầu bắt buộc.** Cân về 50/50
+   nghĩa là model học trên quần thể có tỉ lệ vỡ nợ 50%, nên xác suất trả về không
+   còn ước lượng P(vỡ nợ) thật. Mà §7.4 yêu cầu `CalibratedClassifierCV` + Brier,
+   §8.1 ra quyết định theo **ngưỡng** xác suất. Xác suất chưa hiệu chuẩn thì
+   ngưỡng vô nghĩa.
+2. **Là một cửa rò rỉ rất dễ mở nhầm.** Phải nằm trong fold, chỉ áp lên train.
+   Chạy trước khi chia tập thì SMOTE nội suy giữa các dòng mà sau đó có dòng rơi
+   vào validation — tập validation góp phần tạo ra chính dữ liệu huấn luyện.
+3. **SMOTE vô nghĩa trên dữ liệu này.** Task 3 mã hoá ordinal, nên
+   `ORGANIZATION_TYPE` mã 37 và 38 là hai tổ chức chẳng liên quan gì nhau. Nội
+   suy Euclid sinh ra "mã 37,5" — một tổ chức không tồn tại. Bộ FULL có 16 cột
+   categorical nên đây không phải chi tiết nhỏ.
+4. **Bốn thuật toán phải so công bằng.** Lấy mẫu lại thì mỗi model nhìn thấy một
+   tập khác nhau.
+
+**Điểm rò rỉ đã canh:** tỉ lệ dương là một *thống kê của dữ liệu*, nên con số
+11,3872 ở trên **chỉ dùng để báo cáo**. Số đem đi train phải tính lại trên riêng
+tập train — `scale_pos_weight_from(y_train)` đặt tên tham số là `y_train` để chỗ
+gọi phải viết ra chữ đó. Với `class_weight='balanced'` thì sklearn tự tính từ
+đúng `y` truyền vào `fit()`, nên không có cửa rò rỉ.
+
+### 7.0c Feature Engineering (task 3)
+
+**Số lượng feature:**
+
+| Bộ | Vào | Ra | Còn cột tiền tuyệt đối? |
+|---|---:|---:|---|
+| **RÚT GỌN** (deploy) | 127 | **17** | ✅ không còn cột nào |
+| **FULL** | 127 | **83** | ⚠️ 10 cột — có chủ ý, xem dưới |
+
+Bộ FULL từ 127 xuống 83 là do các bước CÓ HỌC trong Pipeline: bỏ cột thiếu quá
+ngưỡng, khử gần-hằng-số và khử tương quan. Bộ RÚT GỌN không qua bước khử tương
+quan (`correlation_threshold=None`) vì 17 cột đã chọn tay theo tiêu chí *"form
+có thu được không"* — lọc thêm là bỏ mất feature mà hệ thống đang hỏi người dùng.
+
+**12 feature sinh thêm**, ngoài 7 `SHARED_FEATURES` của §2.1b — trọng tâm là
+nhóm lịch sử tín dụng mà form vừa thu được:
+
+| Feature | Công thức | Ở bộ rút gọn |
+|---|---|:--:|
+| `credit_term_implied` | `AMT_CREDIT / AMT_ANNUITY` | ✅ |
+| `bureau_loan_count` | `COUNT(bureau)` | ✅ |
+| `bureau_active_loan_count` | `COUNT(CREDIT_ACTIVE = 'Active')` | ✅ |
+| `bureau_overdue_loan_count` | `COUNT(CREDIT_DAY_OVERDUE > 0)` | ✅ |
+| `bureau_has_overdue` | `MAX(CREDIT_DAY_OVERDUE) > 0` | ✅ |
+| `bureau_overdue_loan_share` | `overdue_count / loan_count` | ✅ |
+| `bureau_debt_income_ratio` | `SUM(AMT_CREDIT_SUM_DEBT) / AMT_INCOME_TOTAL` | ✅ |
+| `bureau_overdue_income_ratio` | `SUM(AMT_CREDIT_SUM_OVERDUE) / AMT_INCOME_TOTAL` | ✅ |
+| `bureau_credit_income_ratio` | `SUM(AMT_CREDIT_SUM) / AMT_INCOME_TOTAL` | ✅ |
+| `bureau_no_record` | join rỗng | ✅ |
+| `bureau_history_years` | `-MIN(DAYS_CREDIT) / 365.25` | ❌ form chưa hỏi |
+| `credit_goods_markup` | `AMT_CREDIT / AMT_GOODS_PRICE` | ❌ không phải LTV |
+
+**Nguyên tắc chia đôi nhóm bureau:** số ĐẾM giữ nguyên được vì không mang đơn vị
+tiền tệ — "3 khoản vay" ở Việt Nam và ở Home Credit là cùng một thứ. Chỉ ba cột
+TIỀN (`AMT_CREDIT_SUM`, `_DEBT`, `_OVERDUE`) mới phải quy về tỉ lệ trên thu nhập.
+
+> **`GoodsPrice/Credit` chính là nghịch đảo của `credit_goods_markup`.** Với bốn
+> thuật toán cây, hai đại lượng nghịch đảo nhau mang **thông tin y hệt**: mọi lát
+> cắt trên cái này ánh xạ 1-1 sang một lát cắt trên cái kia. Đưa cả hai vào chỉ
+> làm feature importance bị xé đôi giữa hai cột cùng nội dung. Giữ một cột, và
+> giữ đúng cái đã có caveat: nó **không phải LTV** — Home Credit cộng phí và bảo
+> hiểm vào `AMT_CREDIT` nên tỉ lệ luôn ≥ 1,0, tức nó đo *mức đội giá*.
+
+**Encoding:** ordinal (`OrdinalEncoder`), **không one-hot** — theo §4.3d. Bốn
+thuật toán đều là cây; one-hot làm số cột nhảy 128 → 249 và xé độ quan trọng của
+`ORGANIZATION_TYPE` (57 hạng mục) thành 57 mảnh. Hai mã riêng: `MISSING_CODE = −2`
+cho hạng mục thiếu, `UNKNOWN_CODE = −1` cho hạng mục lạ lúc inference — tách
+riêng để cây phân biệt được, và để hồ sơ có giá trị lạ **không làm sập service**.
+
+**NaN / inf:** `safe_divide()` cho mẫu số ≤ 0 hoặc thiếu ra `NaN` **chứ không phải
+`inf`** — `inf` sẽ làm scaler nổ và `SimpleImputer` không bắt được vì nó chỉ xử lý
+`NaN`. Đo trên dữ liệu thật sau Pipeline: **0 NaN, 0 inf** ở cả hai bộ.
+
+**Một bước duy nhất có `fit()` không rỗng:** `income_per_capita_ratio` cần trung
+vị thu nhập đầu người làm mẫu số, và trung vị đó **phải học trên riêng tập train**.
+Nó được cài thành transformer trong Pipeline chứ không phải một phép tính chạy sẵn
+— có test dựng hai quần thể lệch nhau 10 lần để khẳng định `fit` thật sự học.
+
+**Bỏ dòng bất hợp lệ khỏi RIÊNG tập train**, đúng như task 2 đã hẹn: cờ
+`INVALID_ROW` được dùng ở đây, tập test giữ nguyên 46.127 dòng. Trên dữ liệu này
+là 0 dòng, nhưng đường đi đã đúng.
+
+**Một Pipeline dùng chung train ↔ inference.** `build_feature_pipeline()` trả về
+đúng một đối tượng `joblib.dump` được, gồm `BureauJoiner → HomeCreditFeatureBuilder
+→ [7 bước tiền xử lý]`. Ba test canh điều này: thứ tự cột train ≡ test, biến đổi
+**từng dòng ≡ theo lô** (inference chạy một dòng, train chạy cả lô), và nạp lại từ
+đĩa cho kết quả trùng khít.
+
+> **Hai lỗi đã sập lúc chạy thật, cả hai đều ở phần khai báo TÊN cột chứ không
+> phải phần tính:**
+>
+> 1. `get_feature_names_out()` của bộ FULL tự liệt kê lại danh sách tên theo trí
+>    nhớ và **sót 6 tỉ lệ dùng chung** → sklearn ném *"Length mismatch: Expected
+>    axis has 156 elements, new values have 162"*. Nay cả `transform()` lẫn hàm
+>    khai tên cùng đọc `engineered_names_for()`.
+> 2. `MissingNormalizer.get_feature_names_out()` khai thừa 6 cờ `_MISSING`.
+>    `add_missing_flags` **ghi đè** cột cờ đã có thay vì thêm cột mới, mà task 2 đã
+>    sinh sẵn 6 cờ đó — nên số cột không tăng còn số tên thì tăng. Đây là lỗi có
+>    sẵn của F01, chỉ lộ ra khi dữ liệu vào Pipeline đã mang sẵn cờ.
+>
+> Cả hai đều thuộc loại nguy hiểm: nếu độ dài tình cờ khớp thì sklearn **không báo
+> gì**, model vẫn chạy, chỉ có tên cột lệch khỏi nội dung cột.
+
+**Một chỗ gom lại:** phép gộp bureau trước đây có hai bản cài đặt riêng ở
+`explore.py` và `features.py`. Nay `features.py` sở hữu, `explore.py` import lại —
+hai bản cài đặt cho cùng một câu hỏi thì sớm muộn cho hai câu trả lời khác nhau về
+cùng một khách hàng.
+
+### 7.0b Làm sạch dữ liệu (task 2) — ranh giới quan trọng nhất
+
+Task này **không** cho ra "dữ liệu sẵn sàng cho model", mà cho ra "dữ liệu đã hết
+bẩn ở mức từng dòng". Phân biệt đó là toàn bộ nội dung của task, vì làm sai chỗ
+này thì mọi chỉ số về sau đều lạc quan giả mà không có dấu hiệu gì:
+
+| | Việc | Ghi ra đĩa? | Vì sao |
+|---|---|---|---|
+| **KHÔNG học** | sentinel → NaN + 6 cờ · chuỗi giả → NaN · chuẩn kiểu · bỏ dòng trùng · gắn cờ dòng bất hợp lệ | ✅ | Biến đổi theo từng dòng, `fit()` rỗng → chạy trước split cũng không rò rỉ |
+| **CÓ học** | `HighMissingDropper` · `OutlierClipper` · `SimpleImputer` · encoder · khử NZV/tương quan · chọn feature có giám sát | ❌ | Cần thống kê cả tập. Chạy trước rồi lưu = trung vị/phân vị được tính trên cả phần sau này là test |
+
+Bảy bước loại hai nằm trong `pipeline_steps_remaining` của metadata, để ai đọc
+file dữ liệu cũng đọc luôn được là còn thiếu gì.
+
+**Bỏ dòng trùng và gắn cờ dòng bất hợp lệ là HAI việc khác nhau** — đây là chỗ
+dễ làm gộp nhất:
+
+- **Dòng trùng `SK_ID_CURR` → BỎ, và phải bỏ trước khi chia tập.** Cùng một
+  khách nằm ở cả train lẫn test là rò rỉ theo nghĩa đen. *(Kết quả: 0 dòng.)*
+- **Dòng bất hợp lệ → chỉ GẮN CỜ `INVALID_ROW`.** Bỏ trước khi chia thì tập test
+  cũng sạch theo, và chỉ số báo cáo sẽ cao hơn năng lực thật — lúc chạy thật hồ
+  sơ bất hợp lệ vẫn cứ đến. Task 3 bỏ chúng khỏi **riêng** tập train.
+  *(Kết quả: 0 dòng vi phạm 6 quy tắc.)*
+
+**Kết quả trước/sau:**
+
+| Bảng | Trước | Sau | Thay đổi |
+|---|---|---|---|
+| `application_train.csv` | 307.511 × 122 | 307.511 × **129** | +6 cờ `_MISSING`, +1 `INVALID_ROW`; **0 dòng bị bỏ** |
+| `bureau.csv` | 1.716.428 × 17 | **1.716.411** × 17 | −17 dòng có thông tin tương lai |
+
+126 cột được phép làm feature; ba cột `TARGET` · `SK_ID_CURR` · `INVALID_ROW`
+loại vĩnh viễn qua `feature_columns()` — một nơi duy nhất trả lời "cột nào vào X".
+
+**Kiểm toán rò rỉ — sáu phép kiểm, tất cả đều ĐO được:**
+
+| Phép kiểm | Đo được | Đạt |
+|---|---|:--:|
+| Nhãn không trong feature set | `TARGET` không nằm trong 126 feature | ✅ |
+| Khoá hồ sơ không trong feature set | `SK_ID_CURR` đã loại | ✅ |
+| Khoá hồ sơ không mang tín hiệu thời gian | vỡ nợ theo thập phân vị ID **7,91%–8,29%** (chênh 0,0038, ngưỡng 3σ = 0,0047) | ✅ |
+| Không cột nào tương quan bất thường với nhãn | \|r\| cao nhất **0,1789** (`EXT_SOURCE_3`), ngưỡng 0,50 | ✅ |
+| Không cột nào trùng khít nhãn | 0 cột | ✅ |
+| Không còn khách hàng trùng | 0 dòng | ✅ |
+
+Ngưỡng của phép kiểm thứ ba **theo cỡ mẫu, không phải hằng số**: 10 nhóm chia từ
+200 dòng thì mỗi nhóm 20 dòng, chênh 15 điểm phần trăm là nhiễu lấy mẫu thuần
+tuý. So với 3 lần sai số chuẩn của một tỉ lệ trong nhóm mới là so đúng. Trên dữ
+liệu thật, chênh lệch **nằm trong** nhiễu — tức ID không phải biến thời gian trá
+hình, nhưng vẫn loại nó khỏi feature vì lý do loại là nguyên tắc chứ không phải
+kết quả đo.
+
+**Dữ liệu tương lai ở `bureau.csv`** — 17 dòng `DAYS_CREDIT_UPDATE > 0` (10→372
+ngày SAU khi nộp đơn, 17 khách hàng). Đã bỏ.
+
+> ⚠️ **`DAYS_CREDIT_ENDDATE` CỐ Ý không bị coi là dữ liệu tương lai**, dù **35,11%**
+> giá trị của nó là số dương. Đó là *ngày kết thúc dự kiến* của khoản vay còn hiệu
+> lực — con số đã biết ngay lúc ký hợp đồng, nên biết nó tại thời điểm nộp đơn là
+> hoàn toàn hợp lệ. Hằng số `BUREAU_FUTURE_LOOKING_OK` tồn tại để lần sau có người
+> thấy "35% dương" rồi tưởng là lỗi và đi "sửa" — sửa là mất một feature hợp lệ.
+
+**Hai quyết định giữ nguyên dữ liệu, cả hai đều ngược với phản xạ thông thường:**
+
+1. **Không bỏ 2.059 dòng trùng nội dung ở `bureau.csv`** (khác mỗi `SK_ID_BUREAU`,
+   thuộc 1.865 khách hàng). `SK_ID_BUREAU` không trùng dòng nào nên đó là những
+   khoản vay riêng biệt tình cờ cùng số tiền cùng ngày — chuyện bình thường với
+   hai khoản tiêu dùng nhỏ mở cùng lúc. Bỏ đi sẽ làm `previous_loan_count`, đúng ô
+   *"Số khoản vay trước đây"* của form, **đếm thiếu**. Đây là cái bẫy §4.3c đã ghi.
+2. **Không kẹp ngoại lai ở task này.** `AMT_INCOME_TOTAL` cao nhất 117.000.000
+   (**247× phân vị 99**) vẫn giữ nguyên — kẹp biên học phân vị từ tập train nên
+   thuộc Pipeline.
+
+**Kiểu dữ liệu:** 73 numeric · 40 binary · 16 categorical. **0 cột bị đọc sai
+kiểu** (ép `to_numeric` trên cả 16 cột chuỗi ra 100% `NaN`). 40 cột "binary" là
+biến nhị phân đội lốt số (`FLAG_DOCUMENT_*`…) — với cây thì vô hại, ghi ra để
+bảng feature importance đọc dễ hơn.
+
+> **Một bẫy đã sập lúc chạy thật:** bảng "thông tin tương lai" của bureau bị nhét
+> vào cùng ô với bảng kiểm toán của application, mà hai bảng khác cột hoàn toàn.
+> `passed_leakage_audit` đọc cột `passed` không tồn tại và ném `KeyError` — **sau
+> khi mọi phép đo đã chạy xong 2,5 phút**, đúng lúc ghi file. Đã tách thành hai
+> trường riêng, có test canh.
+
+### 7.0 Kết quả khám phá (task 1) — xem [docs/ml02_eda.md](docs/ml02_eda.md)
+
+Thước đo là **Information Value (WoE binning)** chứ không phải tương quan
+Pearson: §4.3e đã đo được |r| tuyến tính cao nhất của mọi cột số chỉ **0,179**,
+tin vào Pearson thì kết luận nhầm là không cột nào có ích. IV còn so được cột số
+với cột hạng mục trên cùng một thang, và coi `NaN` là một khoảng riêng nên giữ
+được tín hiệu của việc thiếu dữ liệu (§4.3b).
+
+| Nhóm | Số cột | Cột đầu bảng |
+|---|---:|---|
+| mạnh (IV ≥ 0,30) | 2 | `EXT_SOURCE_3` 0,3293 · `EXT_SOURCE_2` 0,3063 |
+| trung bình (≥ 0,10) | 2 | `EXT_SOURCE_1` 0,1508 · `DAYS_EMPLOYED` 0,1111 |
+| yếu (≥ 0,02) | 51 | `DAYS_BIRTH` · `AMT_GOODS_PRICE` · `OCCUPATION_TYPE` |
+| gần như vô dụng | 65 | |
+
+**Không cột nào có IV > 0,5** — tức không có cột nào chứa sẵn câu trả lời. Bài
+toán là bài toán thật, không có rò rỉ nhãn.
+
+**Phủ sóng của form (căn cứ cho §7.2):** 23 trường form, **17 ánh xạ được** sang
+một cột Home Credit, tổng IV **0,6449 / 3,2147 ≈ 20%**. Con số đó là *chỉ dấu,
+không phải kết luận* — IV cộng dồn giữa các cột tương quan sẽ đếm trùng cùng một
+lượng thông tin. Con số dùng để kết luận là **PR-AUC của hai model train thật**.
+
+Ba cột form không lấy được đứng đầu bảng đều là `EXT_SOURCE_1/2/3`, đúng như
+§7.2 dự đoán. Tiếp theo mới tới `NAME_INCOME_TYPE`, `ORGANIZATION_TYPE`,
+`REGION_RATING_CLIENT*` — đều ở mức "yếu".
+
+**`bureau.csv` đã vào phạm vi** (chốt 15/08/2026, trước đây xếp "để dành").
+1.716.428 khoản vay của 263.491 khách hàng, gộp về một dòng mỗi khách thành đúng
+bốn ô mục C của form:
+
+| Cột tổng hợp | ← ô form | IV | lift xấu nhất |
+|---|---|---:|---:|
+| `BUREAU_LOAN_COUNT` | Số khoản vay trước đây | 0,0170 | 1,25 |
+| `BUREAU_OVERDUE_LOAN_COUNT` | Số lần trả chậm | 0,0112 | 1,79 |
+| `BUREAU_HAS_OVERDUE` | Có khoản vay quá hạn | 0,0091 | **1,97** |
+| `BUREAU_TOTAL_OVERDUE` | Tổng nợ quá hạn | 0,0095 | **2,01** |
+| `BUREAU_HISTORY_YEARS` | *(form chưa hỏi)* | **0,0761** | 1,54 |
+| `BUREAU_ACTIVE_LOAN_COUNT` | *(form chưa hỏi)* | 0,0299 | 1,68 |
+
+⚠️ **IV thấp ở đây KHÔNG có nghĩa là vô dụng, và đây là chỗ dễ kết luận sai
+nhất.** IV cân theo tỉ trọng dân số; `BUREAU_HAS_OVERDUE` chỉ bật ở **1,10%** hồ
+sơ nên IV nhỏ, nhưng trong nhóm đó tỉ lệ vỡ nợ là **15,90% so với 7,99%** —
+**gần gấp đôi**. Loại các cột này theo một ngưỡng IV là loại đúng tín hiệu mạnh
+nhất trên nhóm mà hệ thống cần cảnh báo nhất. Việc giữ/bỏ để `SupervisedFeature
+Selector` trong Pipeline làm (§4.3e), không cắt tay.
+
+**Hai điều phải ghi vào `docs/model_card.md`:**
+
+1. **Lệch định nghĩa ở ô "số lần trả chậm".** `bureau.csv` chỉ ghi trạng thái
+   quá hạn **hiện tại** của từng khoản (`CREDIT_DAY_OVERDUE`), không ghi lịch sử
+   từng kỳ. `BUREAU_OVERDUE_LOAN_COUNT` vì vậy là số **khoản** đang quá hạn,
+   không phải số **lần** trả chậm. Gần nhau nhưng không bằng nhau.
+2. **14,31% hồ sơ không có bản ghi bureau nào**, và nhóm đó vỡ nợ **10,12% so
+   với 7,73%** của nhóm có bản ghi. Điền **0 chứ không phải NaN**: không tìm thấy
+   gì ở trung tâm tín dụng nghĩa là *chưa từng vay*, đúng bằng câu trả lời
+   `previous_loan_count = 0` mà form cho phép chọn. Riêng `BUREAU_HISTORY_YEARS`
+   giữ `NaN` — số năm có lịch sử tín dụng của người chưa từng vay không phải 0
+   năm, nó **không tồn tại**.
+
+**Hai bẫy đo lường đã sập trong lúc làm, cả hai đều cho ra con số trông bình
+thường** — ghi lại vì chúng là loại lỗi không có test thì không bao giờ phát hiện:
+
+| | Hiện tượng | Nguyên nhân | Cách sửa |
+|---|---|---|---|
+| 1 | `BUREAU_TOTAL_OVERDUE` IV = **0,0000** | 98,92% giá trị bằng 0 → mọi mốc phân vị của `qcut` trùng nhau → `duplicates="drop"` gộp còn **một** khoảng. Không phải "cột không có tín hiệu" mà là **phép đo không chạy** | Tách giá trị chiếm ≥ 5% dân số thành khoảng riêng trước, phần còn lại mới chia phân vị (`MASS_POINT_SHARE`) |
+| 2 | Cùng cột đó rồi báo lift **0,99** — "an toàn hơn trung bình" | Sau khi tách khối 0 chỉ còn 1,08% dân số, chia tiếp thành 10 thì mỗi khoảng ~0,1%, đều dưới `min_share` nên bị loại khỏi phép tính lift | Co số khoảng theo phần dân số còn lại |
+
+Bẫy 1 cũng suýt nuốt mất sentinel `DAYS_EMPLOYED = 365243` (18,01%): sau khi sửa,
+IV của cột này tăng từ 0,1012 lên **0,1111**.
+
+Phép tính lift còn phải loại nhóm `__RARE__` — nó là túi gom nhiều hạng mục
+chẳng liên quan gì nhau nên lift của nó không mô tả nhóm người nào cả. Không lọc
+thì `FLAG_DOCUMENT_2` (bật ở **13/307.511** hồ sơ) leo lên đầu bảng với lift
+3,81, thuần tuý do ngẫu nhiên.
+
+**Xác nhận lại hai đính chính của §2.1b bằng số đo trên toàn bộ dữ liệu:**
+
+| Feature tỉ lệ | p1 | trung vị | p99 |
+|---|---:|---:|---:|
+| `dti` | 0,0395 | **0,1628** | 0,4835 |
+| `credit_income_ratio` | 0,5954 | **3,2651** | 13,0273 |
+| `credit_goods_markup` | **1,0000** | 1,1188 | 1,4752 |
+| `employment_ratio` | 0,0075 | 0,1187 | 0,5906 |
+
+`credit_goods_markup` có p1 = 1,0000 — **luôn ≥ 1**, xác nhận nó đo *mức đội
+giá* chứ không phải tỉ lệ vay trên tài sản, nên không được gộp với `ltv` của
+form. `dti` trung vị 0,1628 xác nhận `AMT_INCOME_TOTAL` và `AMT_ANNUITY` cùng kỳ.
+
 ### 7.1 Bài toán
 
 `application_train.csv` — 307.511 hồ sơ, nhãn **`TARGET`** (1 = khó khăn trả nợ). Đây là **nhãn thật, thu thập độc lập** — trụ cột ML mạnh nhất của đồ án.
@@ -782,7 +1756,15 @@ Viết đúng câu này thì ML01 là một thí nghiệm hợp lệ. Viết sai
 | **Full** | Toàn bộ, kể cả `EXT_SOURCE_1/2/3` | Chứng minh năng lực kỹ thuật, AUC cao |
 | **Rút gọn** | Chỉ feature ánh xạ được từ form (mục 2.1) | Model **thực sự deploy** |
 
-`EXT_SOURCE_1/2/3` là điểm tín dụng từ nguồn ngoài — nhóm feature mạnh nhất của Home Credit nhưng **không thể thu được từ form**. Bảng so sánh AUC hai phiên bản chính là mục *"phân tích tính khả thi triển khai"* trong báo cáo.
+`EXT_SOURCE_1/2/3` là điểm tín dụng từ nguồn ngoài — nhóm feature mạnh nhất của Home Credit nhưng **không thể thu được từ form**. Task 1 đã xác nhận bằng số: đó là **hai trong hai** cột duy nhất đạt mức "mạnh", và cả ba chiếm đầu bảng những cột form không lấy được. Bảng so sánh AUC hai phiên bản chính là mục *"phân tích tính khả thi triển khai"* trong báo cáo.
+
+> **Bộ Rút gọn đã rộng hơn hẳn so với bản 11/08/2026.** Lúc đó nó chỉ có **6/7
+> feature** vì form chưa hỏi nghề nghiệp, học vấn, hôn nhân hay lịch sử tín dụng.
+> Sau khi màn **"Thông tin khoản vay"** lên (15/08/2026), form thu đủ 23 trường và
+> bộ Rút gọn có thêm ba nhóm: nhân thân (`CODE_GENDER`, `NAME_FAMILY_STATUS`,
+> `NAME_EDUCATION_TYPE`), nghề nghiệp (`OCCUPATION_TYPE`, `DAYS_EMPLOYED`), và
+> lịch sử tín dụng tổng hợp từ `bureau.csv`. Bảng phủ sóng đầy đủ ở
+> `src/training/runs/ml02_eda/form_coverage.csv`.
 
 ### 7.3 Class imbalance (task 4)
 

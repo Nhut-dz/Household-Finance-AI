@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import TopNav from './components/TopNav'
 import HomePage from './pages/HomePage'
 import InfoFormPage from './pages/InfoFormPage'
+import LoanFormPage from './pages/LoanFormPage'
 import ChatbotPage from './pages/ChatbotPage'
 import ProposalPage from './pages/ProposalPage'
 import { fromHouseholdResponse, getLatestHousehold } from './api/households'
@@ -60,6 +61,10 @@ export default function App() {
                 setPage('chatbot')
               }}
             />
+          )}
+
+          {page === 'loan' && (
+            <LoanFormPage householdId={householdId} onNavigate={setPage} />
           )}
 
           {page === 'chatbot' && (

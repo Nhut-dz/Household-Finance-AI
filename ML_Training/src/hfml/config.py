@@ -81,10 +81,12 @@ class Config:
     confidence_threshold: float = 0.60
 
     # Tham số train dùng chung cho ML01 và ML02 (PLAN.md §11).
+    # Task 5: train 70% · validation 15% · test 15%. Phần train là số còn lại,
+    # không khai riêng để ba con số không thể lệch tổng.
+    #
+    # Không có `n_splits`: ML01 bỏ K-Fold Cross-Validation từ 14/08/2026, chọn
+    # model theo macro-F1 trên tập validation.
     training: dict = field(default_factory=lambda: {
-        "n_splits": 5,          # StratifiedKFold
-        # Task 5: train 70% · validation 15% · test 15%. Phần train là số còn
-        # lại, không khai riêng để ba con số không thể lệch tổng.
         "val_size": 0.15,
         "test_size": 0.15,
     })
@@ -105,6 +107,11 @@ class Config:
     })
     llm_api_key: str = ""
 
+    # Cấu hình runtime của module inference (Epic AI-03). Nội dung được
+    # `hfml.inference.settings` đọc và diễn giải — ở đây chỉ giữ nguyên khối
+    # dict để `config.py` không phải biết gì về tầng inference.
+    inference: dict = field(default_factory=dict)
+
 
 def load_config(path: str | Path | None = None) -> Config:
     """Đọc config.yaml (nếu có) rồi phủ biến môi trường lên trên."""
@@ -120,6 +127,7 @@ def load_config(path: str | Path | None = None) -> Config:
         cfg.training.update(data.get("training", {}))
         cfg.logging.update(data.get("logging", {}))
         cfg.llm.update(data.get("llm", {}))
+        cfg.inference.update(data.get("inference", {}) or {})
         db = data.get("database", {}) or {}
         cfg.database.host = db.get("host", cfg.database.host)
         cfg.database.port = int(db.get("port", cfg.database.port))

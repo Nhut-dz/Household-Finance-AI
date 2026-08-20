@@ -130,7 +130,11 @@ def log_run_context(log: logging.Logger) -> None:
 
     Gọi ở đầu mỗi script train / experiment (F07 task 1).
     """
-    log.info("seed=%d | confidence_threshold=%.2f | n_splits=%d",
+    # Ghi tỉ lệ chia thay cho `n_splits`: ML01 bỏ K-Fold từ 14/08/2026, và
+    # cái quyết định con số của một lần chạy bây giờ là ba tỉ lệ này.
+    val_size = CONFIG.training["val_size"]
+    test_size = CONFIG.training["test_size"]
+    log.info("seed=%d | confidence_threshold=%.2f | split %.0f/%.0f/%.0f",
              CONFIG.random_seed,
              CONFIG.confidence_threshold,
-             CONFIG.training["n_splits"])
+             (1.0 - val_size - test_size) * 100, val_size * 100, test_size * 100)

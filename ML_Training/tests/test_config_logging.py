@@ -35,7 +35,10 @@ def test_config_loads_yaml_values():
     cfg = load_config()
     assert cfg.random_seed == 42
     assert 0 < cfg.confidence_threshold <= 1
-    assert cfg.training["n_splits"] >= 2
+    # Không còn `n_splits`: ML01 bỏ K-Fold Cross-Validation (14/08/2026).
+    assert "n_splits" not in cfg.training
+    assert cfg.training["val_size"] == pytest.approx(0.15)
+    assert cfg.training["test_size"] == pytest.approx(0.15)
     assert cfg.logging["level"] in {"DEBUG", "INFO", "WARNING", "ERROR"}
     assert cfg.llm["model"]
 
