@@ -1,4 +1,4 @@
-"""AI-02 task 4, 5 — Sinh giải thích và khuyến nghị (F05 · M06).
+﻿"""AI-02 task 4, 5 — Sinh giải thích và khuyến nghị (F05 · M06).
 
 Gọi Gemini với context đã dựng, kiểm câu trả lời, và **hạ cấp về template khi
 không đạt**. Ba chế độ, theo thứ tự ưu tiên:
