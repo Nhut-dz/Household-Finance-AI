@@ -1,4 +1,4 @@
-"""Tầng api — FastAPI endpoints.
+﻿"""Tầng api — FastAPI endpoints.
 
     GET  /health    kiểm tra service sống, kèm trạng thái model ML01
     POST /advise    tư vấn — định tuyến theo `intent_code` (F02 + F03 + F04)
@@ -308,7 +308,7 @@ def _advise_financial_health(req: AdviseRequest, rule_summary: str) -> AdviseRes
 
 
 def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
-    """Nhánh `LOAN_RISK_DIAGNOSIS` — thông tin khoản vay → ML02 → LLM giải thích.
+    """Nhánh LOAN_RISK_DIAGNOSIS — thông tin khoản vay → ML02 → LLM giải thích.
 
     Hai cửa chặn trước khi tới model, theo đúng thứ tự:
 
@@ -336,20 +336,55 @@ def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
             requires_loan_application=True,
         )
 
-    # Chạy Rule + ML02 qua module inference, KHÔNG gọi LLM.
-    #
-    # Dùng `analyze()` chứ không phải `chat()`. Đã sập đúng vì chuyện này khi
-    # test trên UI: `chat()` gọi Gemini, và khi hết quota thì client tự retry
-    # với backoff nên vượt hẳn 30 giây mà Laravel chờ
-    # (`PYTHON_ADVISOR_TIMEOUT`). Người dùng chỉ thấy "Không kết nối được
-    # service tư vấn AI", còn log Python thì dừng lặng lẽ sau bước dựng context.
-    #
-    # `/advise` là bề mặt ĐỒNG BỘ với Laravel, và nhánh ML01 bên trên cũng chỉ
-    # dùng template (`explain_ml01`). Nhánh này phải đối xứng: `analyze()` chạy
-    # ~150ms, không tốn quota, không phụ thuộc mạng ngoài. Đường có LLM là
-    # `/api/v1/chat` — nơi timeout khai riêng và client biết mình đang chờ.
-    result = inference_engine.analyze(
-        normalize_payload(req.household, req.loan_application))
+    hh_dict = dict(req.household)
+    if "assets" in hh_dict and isinstance(hh_dict["assets"], list):
+        norm_assets = []
+        for a in hh_dict["assets"]:
+            a_str = str(a.value if hasattr(a, "value") else a).lower()
+            if a_str in ["house", "land", "real_estate"]:
+                norm_assets.append("real_estate")
+            elif a_str in ["car", "vehicle"]:
+                norm_assets.append("vehicle")
+            elif a_str in ["cash", "gold", "insurance", "investment"]:
+                norm_assets.append(a_str)
+        hh_dict["assets"] = list(dict.fromkeys(norm_assets))
+
+    loan_dict = dict(req.loan_application)
+    if "occupation" in loan_dict and loan_dict["occupation"]:
+        occ_str = str(loan_dict["occupation"]).lower()
+        if "it" in occ_str or "công nghệ" in occ_str:
+            loan_dict["occupation"] = "it_staff"
+        elif "văn phòng" in occ_str or "office" in occ_str:
+            loan_dict["occupation"] = "office_staff"
+
+    if "education_level" in loan_dict and loan_dict["education_level"]:
+        edu_str = str(loan_dict["education_level"]).lower()
+        if edu_str in ["university", "đại học", "dai_hoc"]:
+            loan_dict["education_level"] = "higher"
+        elif edu_str in ["master", "doctor", "sau đại học", "academic"]:
+            loan_dict["education_level"] = "academic_degree"
+        elif edu_str in ["high_school", "trung học", "thpt"]:
+            loan_dict["education_level"] = "secondary"
+
+    if "gender" in loan_dict and loan_dict["gender"]:
+        g_str = str(loan_dict["gender"]).lower()
+        loan_dict["gender"] = "male" if g_str in ["male", "nam", "m"] else "female"
+
+    if "marital_status" in loan_dict and loan_dict["marital_status"]:
+        m_str = str(loan_dict["marital_status"]).lower()
+        if m_str in ["single", "độc thân", "doc_than"]:
+            loan_dict["marital_status"] = "single"
+        elif m_str in ["married", "kết hôn", "da_ket_hon"]:
+            loan_dict["marital_status"] = "married"
+
+    if "loan_purpose" in loan_dict and loan_dict["loan_purpose"]:
+        p_str = str(loan_dict["loan_purpose"]).lower()
+        if "nhà" in p_str or "house" in p_str:
+            loan_dict["loan_purpose"] = "buy_house"
+        elif "xe" in p_str or "car" in p_str:
+            loan_dict["loan_purpose"] = "buy_car"
+
+    result = inference_engine.analyze(normalize_payload(hh_dict, loan_dict))
     analysis = result.to_dict().get("analysis") or {}
     ml02 = analysis.get("ml02") or {}
 
@@ -434,21 +469,25 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     asset_label_list = []
     for a in assets:
-        if a in ["house", "land", "real_estate"]:
+        a_lower = str(a).lower()
+        if a_lower == "house":
+            asset_label_list.append("Nhà ở")
+        elif a_lower == "land":
+            asset_label_list.append("Đất đai")
+        elif a_lower in ["real_estate", "bất động sản"]:
             asset_label_list.append("Bất động sản")
-        elif a in ["car", "vehicle"]:
+        elif a_lower in ["car", "vehicle", "xe"]:
             asset_label_list.append("Phương tiện (Xe)")
-        elif a == "cash":
-            asset_label_list.append("Tiền mặt/Tiền gửi")
-        elif a == "gold":
-            asset_label_list.append("Vàng")
-        elif a == "insurance":
+        elif a_lower in ["cash", "savings"]:
+            asset_label_list.append("Tiền gửi / Tiền mặt")
+        elif a_lower == "gold":
+            asset_label_list.append("Vàng & Kim loại quý")
+        elif a_lower == "insurance":
             asset_label_list.append("Bảo hiểm")
-        elif a == "investment":
-            asset_label_list.append("Đầu tư")
+        elif a_lower in ["investment", "stock"]:
+            asset_label_list.append("Đầu tư / Cổ phiếu")
         else:
             asset_label_list.append(str(a).upper())
-
     asset_desc = ", ".join(list(dict.fromkeys(asset_label_list))) if asset_label_list else "Chưa có tài sản"
 
     # Trích xuất giá trị tài sản và kỳ hạn vay từ câu hỏi người dùng nếu có
@@ -474,20 +513,38 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     log.info("advise: intent=%s (%s)", intent.value,
              "chip" if req.intent_code else "từ khoá")
+    status_map = {
+        "POSITIVE": "Dồi dào thặng dư",
+        "BALANCED": "Cân bằng thu chi",
+        "DEFICIT": "Bội chi / Thâm hụt",
+        "EXCELLENT": "Xuất sắc & Rất an toàn",
+        "GOOD": "Tốt & An toàn",
+        "WARNING": "Cần chú ý thêm",
+        "CRITICAL": "Cảnh báo khẩn cấp",
+        "ELIGIBLE": "Đủ năng lực vay",
+        "APPROVED": "Phù hợp vay",
+        "REJECTED": "Chưa nên vay thêm",
+    }
+    st_overall = status_map.get(str(overall_status), str(overall_status))
+    st_rb01 = status_map.get(str(rb01.get("status")), str(rb01.get("status")))
+    st_rb02 = status_map.get(str(rb02.get("status")), str(rb02.get("status")))
+    st_rb05 = status_map.get(str(rb05.get("status")), str(rb05.get("status")))
 
-    # Tóm tắt tầng rule, dùng lại cho cả câu trả lời thường lẫn phần diễn giải
-    # của ML01 — hai nơi nói khác nhau về cùng một hồ sơ là chuyện phải tránh.
+    if net_cashflow < 0:
+        cashflow_line = f"Thâm hụt (bội chi) khoảng **{abs(net_cashflow):,.0f} VNĐ/tháng** ({st_rb01})"
+    else:
+        cashflow_line = f"Dư thừa khoảng **{net_cashflow:,.0f} VNĐ/tháng** ({st_rb01})"
+
+    elderly_str = " (Có phụng dưỡng người già ➔ Nâng đệm dự phòng lên 6 tháng)" if has_dependents else ""
+
     rule_summary = (
-        f"📌 **Đánh giá tổng quan ({overall_status})**:\n"
-        f"- Dòng tiền hàng tháng (RB01): Dư thừa khoảng {net_cashflow:,.0f} VNĐ ({rb01.get('status')}).\n"
-        f"- Nợ, Tiết kiệm & Tài sản: Nợ {debt_desc} | Tiết kiệm {savings_desc} | Tài sản: {asset_desc}.\n"
-        f"- Sức khỏe tài chính (RB02): {rb02.get('status')} (Tỷ lệ DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
-        f"- Khả năng vay vốn (RB05): Trả nợ đề xuất thêm tối đa {max_add_payment:,.0f} VNĐ/tháng ({rb05.get('status')})."
+        f"📌 **Phân tích chỉ số tài chính tổng quan ({st_overall})**:\n"
+        f"- **Dòng tiền hàng tháng**: {cashflow_line}.\n"
+        f"- **Nợ & Tích lũy**: Nợ {debt_desc} | Tiết kiệm {savings_desc} | Tài sản: {asset_desc}.\n"
+        f"- **Đệm dự phòng & Trả nợ**: {st_rb02} (DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng{elderly_str}, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
+        f"- **Năng lực vay mới**: Trả nợ đề xuất thêm tối đa {max_add_payment:,.0f} VNĐ/tháng ({st_rb05})."
     )
 
-    # Hai nhánh ML trả về câu trả lời HOÀN CHỈNH và thoát sớm: chúng có cấu
-    # trúc riêng do tầng diễn đạt dựng, không phải một đoạn `advice_detail`
-    # ghép vào khung trả lời chung.
     if intent is IntentCode.FINANCIAL_HEALTH_DIAGNOSIS:
         return _advise_financial_health(req, rule_summary)
 
@@ -495,6 +552,13 @@ def advise(req: AdviseRequest) -> AdviseResponse:
         return _advise_loan_risk(req)
 
     # ------------------------------------------------- nhánh rule, giữ nguyên
+    # ------------------------------------------------- xử lý lời văn tự nhiên đẹp mắt
+    if net_cashflow < 0:
+        abs_deficit = abs(net_cashflow)
+        cashflow_str = f"⚠️ Dòng tiền đang bị thâm hụt (bội chi) **{abs_deficit:,.0f} VNĐ/tháng**"
+    else:
+        cashflow_str = f"Thặng dư khả dụng hàng tháng đạt **{net_cashflow:,.0f} VNĐ/tháng**"
+
     if intent is IntentCode.LOAN_CAPACITY:
         asset_price = parsed_price or float(household.get("asset_price") or 0.0)
         loan_eval = evaluate_loan_capacity(household, asset_price=asset_price, term_months=term_months)
@@ -503,79 +567,106 @@ def advise(req: AdviseRequest) -> AdviseResponse:
         max_pmt = loan_val.get("max_allowed_monthly_payment", 0.0)
         max_ltv_loan = loan_val.get("max_loan_by_ltv", 0.0)
 
-        debt_note = f" (Đã trừ đi khoản nợ đang trả {debt_payment:,.0f} VNĐ/tháng)" if debt_payment > 0 else ""
+        debt_note = f" (đã trừ nghĩa vụ trả nợ hiện tại {debt_payment:,.0f} VNĐ/tháng)" if debt_payment > 0 else ""
 
         if asset_price > 0:
             down_payment = max(0.0, asset_price - max_loan)
             advice_detail = (
-                f"🏡 **Tư vấn vay mua tài sản ({asset_price:,.0f} VNĐ, kỳ hạn {term_years_str})**:\n"
-                f"- Hạn mức vay an toàn tối đa dựa trên thu nhập (DTI ≤ 40%, {term_years_str}): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
-                f"- Số tiền trả gốc lãi tối đa có thể gánh thêm: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
-                f"- Hạn mức vay tối đa theo tài sản thế chấp (LTV 70%): **{max_ltv_loan:,.0f} VNĐ**.\n"
-                f"- Năng lực thế chấp tài sản sở hữu hiện tại ({asset_desc}): **Mức {collateral_quality}**.\n"
-                f"- 💡 **Khuyên dùng**: Bạn có thể vay an toàn tối đa **{max_loan:,.0f} VNĐ** trong thời hạn **{term_years_str}**. "
-                f"Do đó bạn cần chuẩn bị sẵn vốn tự có (tiền trả trước) tối thiểu **{down_payment:,.0f} VNĐ** ({down_payment/asset_price:.1%}) trước khi quyết định mua."
+                f"🏡 **Tư vấn hạn mức vay mua tài sản ({asset_price:,.0f} VNĐ, kỳ hạn {term_years_str})**:\n\n"
+                f"- Hạn mức vay an toàn tối đa (DTI ≤ 40%): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
+                f"- Trả gốc + lãi hàng tháng tối đa có thể gánh thêm: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
+                f"- Hạn mức thế chấp theo giá trị tài sản (LTV 70%): **{max_ltv_loan:,.0f} VNĐ**.\n"
+                f"- Năng lực thế chấp từ tài sản sở hữu hiện tại ({asset_desc}): **Mức {collateral_quality}**.\n\n"
+                f"💡 **Lời khuyên**: Bạn nên vay an toàn tối đa **{max_loan:,.0f} VNĐ** và cần chuẩn bị trước tiền mặt tự có tối thiểu **{down_payment:,.0f} VNĐ** ({down_payment/asset_price:.1%}) trước khi quyết định mua."
             )
         else:
             advice_detail = (
-                f"🏦 **Tư vấn hạn mức vay an toàn (kỳ hạn {term_years_str})**:\n"
-                f"- Hạn mức vay an toàn tối đa ({term_years_str}): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
-                f"- Khả năng trả gốc lãi vay mới tối đa: **{max_pmt:,.0f} VNĐ/tháng**.\n"
-                f"- Năng lực thế chấp từ tài sản sở hữu ({asset_desc}): **Mức {collateral_quality}**."
+                f"🏦 **Tư vấn hạn mức vay an toàn (Kỳ hạn {term_years_str})**:\n\n"
+                f"- Hạn mức vay bổ sung an toàn tối đa: **{max_loan:,.0f} VNĐ**{debt_note}.\n"
+                f"- Khả năng trích thặng dư trả nợ mới hàng tháng: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
+                f"- Đánh giá tài sản thế chấp hiện có ({asset_desc}): **Mức {collateral_quality}**."
             )
 
     elif intent is IntentCode.SAVINGS_PACKAGE:
         buf_min = expense * min_emerg_target
-        months_min = (buf_min / net_cashflow) if net_cashflow > 0 else 0
-        elderly_note = " (Đã nâng lên 6 tháng do có phụng dưỡng người già)" if has_dependents else ""
+        elderly_note = " (Đã nâng mốc quỹ dự phòng từ 3 lên 6 tháng chi tiêu do gia đình có người già phụng dưỡng)" if has_dependents else ""
 
-        advice_detail = (
-            f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
-            f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
-            f"- Số dư thặng dư khả dụng hàng tháng: **{net_cashflow:,.0f} VNĐ/tháng** (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}).\n"
-            f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {buf_min:,.0f} VNĐ){elderly_note}: Cần tích lũy khoảng **{months_min:.1f} tháng**."
-        )
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng khẩn cấp**:\n\n"
+                f"- Tiết kiệm tích lũy hiện có: **{savings_desc}**.\n"
+                f"- Trạng thái dòng tiền: {cashflow_str}.\n"
+                f"- Mục tiêu Quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = **{buf_min:,.0f} VNĐ**){elderly_note}.\n\n"
+                f"⚠️ **Khuyến nghị khẩn cấp**: Do dòng tiền hiện tại đang bị thâm hụt ({net_cashflow:,.0f} VNĐ/tháng), gia đình chưa có thặng dư để tích lũy. "
+                f"Ưu tiên số 1 lúc này là rà soát và thắt chặt các khoản chi tiêu chưa cấp thiết để cân bằng dòng tiền."
+            )
+        else:
+            months_min = buf_min / net_cashflow
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng khẩn cấp**:\n\n"
+                f"- Tiết kiệm tích lũy hiện có: **{savings_desc}**.\n"
+                f"- {cashflow_str} (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}).\n"
+                f"- Mục tiêu Quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = **{buf_min:,.0f} VNĐ**){elderly_note}.\n\n"
+                f"💡 **Lộ trình thực hiện**: Với số dư thặng dư hiện tại, gia đình chỉ cần trích tích lũy liên tục trong khoảng **{months_min:.1f} tháng** là sẽ hoàn thành 100% mục tiêu quỹ dự phòng an toàn."
+            )
 
-    # Chip "Gói đầu tư" đã rút khỏi nhóm gợi ý (15/08/2026), nhưng nhánh này
-    # giữ nguyên: người dùng vẫn gõ "tư vấn đầu tư" được, và bỏ nhánh đi thì
-    # câu đó rơi xuống trả lời chung.
     elif intent is IntentCode.INVESTMENT:
-        advice_detail = (
-            f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
-            f"- Với thặng dư dòng tiền **{net_cashflow:,.0f} VNĐ/tháng** (Tỷ lệ tiết kiệm {savings_rate:.1%}):\n"
-            f"- Trích **30% ({net_cashflow*0.3:,.0f} VNĐ)** cho tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
-            f"- Trích **70% ({net_cashflow*0.7:,.0f} VNĐ)** đầu tư vào tài sản sinh lời an toàn (Trái phiếu / Chứng chỉ quỹ)."
-        )
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư**:\n\n"
+                f"- Trạng thái dòng tiền: {cashflow_str}.\n\n"
+                f"⚠️ **Khuyến nghị**: Hiện tại gia đình chưa có dòng tiền thặng dư dương nên chưa phù hợp để tham gia các kênh đầu tư sinh lời. "
+                f"Cần ưu tiên tái cơ cấu thu chi để tạo thặng dư trước khi tính đến chuyện đầu tư."
+            )
+        else:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư sinh lời**:\n\n"
+                f"- Với {cashflow_str} (Tỷ lệ tiết kiệm {savings_rate:.1%}), hệ thống đề xuất mô hình phân bổ an toàn:\n"
+                f"  - **30% ({net_cashflow*0.3:,.0f} VNĐ/tháng)**: Dành cho Tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
+                f"  - **70% ({net_cashflow*0.7:,.0f} VNĐ/tháng)**: Đầu tư tài sản sinh lời an toàn (Trái phiếu uy tín / Chứng chỉ quỹ)."
+            )
 
     elif intent is IntentCode.BUDGET_50_30_20:
         needs_target = income * 0.50
         wants_target = income * 0.30
         savings_target = income * 0.20
 
+        if net_cashflow < 0:
+            advice_detail = (
+                f"📊 **Phân tích ngân sách theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ/tháng)**:\n\n"
+                f"- **50% Nhu cầu thiết yếu** (Hạn mức tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại **{expense:,.0f} VNĐ**"
+                f" + Trả gốc lãi nợ **{debt_payment:,.0f} VNĐ/tháng**.\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {wants_target:,.0f} VNĐ).\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Yêu cầu tối thiểu {savings_target:,.0f} VNĐ).\n\n"
+                f"⚠️ **Cảnh báo ngân sách**: Dòng tiền hiện tại đang bị thâm hụt **{abs(net_cashflow):,.0f} VNĐ/tháng** do tổng chi tiêu và nghĩa vụ trả nợ vượt quá thu nhập. "
+                f"Gia đình cần ngay lập tức thắt chặt nhóm chi tiêu thiết yếu và tạm dừng chi tiêu giải trí để đưa ngân sách về trạng thái cân bằng."
+            )
+        else:
+            advice_detail = (
+                f"📊 **Phân tích ngân sách theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ/tháng)**:\n\n"
+                f"- **50% Nhu cầu thiết yếu** (Tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại {expense:,.0f} VNĐ (Kiểm soát tốt).\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {wants_target:,.0f} VNĐ): Ngân sách cho nâng cao chất lượng cuộc sống.\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {savings_target:,.0f} VNĐ): {cashflow_str} (Chiếm {savings_rate:.1%} thu nhập).\n\n"
+                f"💡 **Nhận xét**: Gia đình bạn đang phân bổ tiết kiệm vượt trội hơn mốc tối thiểu 20%, đây là nền tảng tài chính rất lành mạnh."
+            )
+    else:
+        elderly_text = " Hệ thống đã tự động nâng mốc quỹ dự phòng y tế lên 6 tháng chi tiêu sinh hoạt do gia đình có người già phụng dưỡng." if has_dependents else ""
         advice_detail = (
-            f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ)**:\n"
-            f"- **50% Nhu cầu thiết yếu** (Tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại {expense:,.0f} VNĐ.\n"
-            f"- **30% Cá nhân & Giải trí** (Tối đa {wants_target:,.0f} VNĐ).\n"
-            f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {savings_target:,.0f} VNĐ): Thặng dư hiện tại đạt **{net_cashflow:,.0f} VNĐ** ({savings_rate:.1%})."
+            f"Dựa trên phân tích dòng tiền và đòn bẩy nợ hiện tại, gia đình bạn đang có số dư thặng dư khả dụng hàng tháng là **{net_cashflow:,.0f} VNĐ** (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}). "
+            f"Hạn mức trả gốc lãi vay mới đề xuất thêm tối đa là **{max_add_payment:,.0f} VNĐ/tháng**.{elderly_text}"
+        )
+
+    if req.intent_code and intent not in (IntentCode.FINANCIAL_HEALTH_DIAGNOSIS, IntentCode.GENERAL):
+        answer = (
+            f"Chào {rep_name}, hệ thống AI tư vấn tài chính xin gửi bạn phân tích chi tiết:\n\n"
+            f"{advice_detail}"
         )
     else:
-        elderly_text = " Ghi nhận gia đình có phụng dưỡng người già ➔ Nâng ngưỡng quỹ dự phòng y tế lên 6 tháng chi tiêu sinh hoạt." if has_dependents else ""
-        advice_detail = (
-            f"Dựa trên phân tích dòng tiền và đòn bẩy nợ hiện tại, bạn có số dư thặng dư khả dụng hàng tháng là **{net_cashflow:,.0f} VNĐ** (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}). "
-            f"Hạn mức trả nợ mới đề xuất thêm tối đa là **{max_add_payment:,.0f} VNĐ/tháng**.{elderly_text}"
+        answer = (
+            f"Chào {rep_name}, hệ thống AI tư vấn tài chính đã phân tích hồ sơ của bạn.\n\n"
+            f"{rule_summary}\n\n"
+            f"{advice_detail}"
         )
-
-    # Người dùng bấm chip thì "câu hỏi" chỉ là nhãn của chip, nhắc lại nguyên
-    # văn nghe như máy đọc lại chính nút vừa bấm.
-    heading = (f"💡 **{INTENT_LABELS[intent]}**:" if req.intent_code
-               else f"💡 **Trả lời cho câu hỏi: '{question}'**:")
-
-    answer = (
-        f"Chào {rep_name}, hệ thống AI tư vấn tài chính đã phân tích hồ sơ của bạn.\n\n"
-        f"{rule_summary}\n\n"
-        f"{heading}\n"
-        f"{advice_detail}"
-    )
 
     suggested = [
         "Tôi muốn mua nhà giá 3 tỷ thì vay được bao nhiêu?",

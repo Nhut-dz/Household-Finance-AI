@@ -36,7 +36,7 @@ logging:
 inference:
   # Artifact đang phục vụ. Đổi model = đổi hai dòng này, không sửa mã nguồn.
   # HFML_ML01_SLUG / HFML_ML02_SLUG
-  ml01_slug: ml01_xgboost_vfinal
+  ml01_slug: ml01_xgboost_v1
   ml02_slug: ml02_xgboost_reduced_vfinal
 
   # null = dùng ngưỡng đã chốt trong artifact (0.1303, F04 task 14) — đúng thứ

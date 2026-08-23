@@ -160,12 +160,7 @@ def label_frame(
     t = thresholds
 
     conditions = [
-        # `savings_rate < 0` NAY tương đương `thu − chi − trả nợ < 0`, vì
-        # `savings_rate` đã lấy từ `rules.indicators` — bản có trừ khoản trả nợ
-        # và giữ dấu. Trước khi gộp định nghĩa, công thức ở đây bỏ quên trả nợ
-        # nên hộ trả nợ nặng mà thu vẫn hơn chi KHÔNG bao giờ vào EMERGENCY,
-        # dù tầng quy tắc gọi họ là CRITICAL.
-        (ind["savings_rate"] < 0) | (ind["savings_months"] < t.emergency_savings_months),
+(ind["savings_rate"] < 0) | ((ind["savings_months"] < t.emergency_savings_months) & (ind["savings_rate"] < t.buffer_savings_rate)),
         ind["dti"] >= t.debt_focus_dti,
         (ind["savings_months"] < t.buffer_savings_months)
         | (ind["savings_rate"] < t.buffer_savings_rate),
@@ -360,3 +355,5 @@ ZERO_WHEN_ABSENT: Final[tuple[str, ...]] = (
     "total_current_debt",
     "monthly_debt_payment",
 )
+
+
