@@ -93,6 +93,18 @@ Route::prefix('households')->group(function () {
         ->whereNumber('id')
         ->whereNumber('conversationId')
         ->name(ApiEnum::HOUSEHOLD_CONVERSATION_MESSAGES->routeName());
+
+    /*
+     * Xoá hẳn mọi phiên trò chuyện, giữ nguyên hồ sơ hộ gia đình. Dùng cho nút
+     * "Xóa dữ liệu" ở form khoản vay: form đó không sở hữu hồ sơ nên không được
+     * xoá hồ sơ, nhưng các câu trả lời ML02 về khoản vay lại nằm trong hội thoại.
+     *
+     * Khai báo SAU '/{id}/conversations/{conversationId}/messages' không sao vì
+     * khác method, nhưng vẫn để cuối nhóm cho khớp thứ tự đọc của file.
+     */
+    Route::delete('/{id}/conversations', [ChatMessageController::class, 'destroyConversations'])
+        ->whereNumber('id')
+        ->name(ApiEnum::HOUSEHOLD_CONVERSATION_DESTROY->routeName());
 });
 
 Route::middleware('auth:sanctum')->group(function () {

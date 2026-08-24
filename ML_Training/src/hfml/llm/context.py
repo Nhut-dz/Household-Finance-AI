@@ -61,6 +61,9 @@ class AiContext:
     intent: str
     topic: str
     overall_status: str | None = None
+    #: Đánh giá tổng quan đã dịch. Đi kèm `overall_status` chứ không thay nó:
+    #: tầng kiểm chứng đối chiếu mã, tầng câu chữ dùng bản dịch.
+    overall_status_vi: str = ""
     profile: dict = field(default_factory=dict)
     rules: dict = field(default_factory=dict)
     ml01: dict = field(default_factory=dict)
@@ -77,6 +80,7 @@ class AiContext:
             "intent": self.intent,
             "topic": self.topic,
             "overall_status": self.overall_status,
+            "overall_status_vi": self.overall_status_vi,
             "profile": self.profile,
             "rules": self.rules,
             "ml01": self.ml01,
@@ -181,14 +185,33 @@ def _relevant_rules(result: dict, intent: IntentCode) -> dict:
     RB01 (dòng tiền) và RB02 (sức khỏe) luôn có mặt vì gần như mọi lời khuyên
     tài chính đều phải đặt trên hai con số đó — nói "nên tiết kiệm thêm" mà
     không biết hộ còn dư bao nhiêu là lời khuyên rỗng.
+
+    Mỗi rule được gắn thêm `name_vi` và `status_vi` — tên nghiệp vụ và trạng
+    thái đã dịch. Prompt cấm LLM chép lại mã nội bộ, nhưng cấm không thôi thì
+    chưa đủ: nếu trong prompt chỉ có `"status": "CRITICAL"` thì model không có
+    từ nào khác để dùng và nó sẽ chép, hoặc tự dịch mỗi lần một kiểu. Đưa sẵn
+    bản tiếng Việt vào là biến lệnh cấm thành một lựa chọn dễ hơn.
+
+    Bản sao NÔNG chứ không sửa tại chỗ: `rules[code]` là chính dict nằm trong
+    `AiResult`, và nhét khoá trình bày vào đó là để tầng hiển thị đổi cấu trúc
+    dữ liệu mà tầng kiểm chứng đang đọc.
     """
+    from hfml.llm import presentation
+
     wanted = {"RB01", "RB02"}
     for requirement in REQUIREMENTS.get(intent, ()):
         if requirement.path.startswith("rules."):
             wanted.add(requirement.path.split(".", 1)[1])
 
     rules = result.get("rules") or {}
-    return {code: rules[code] for code in sorted(wanted) if code in rules}
+    return {
+        code: {
+            **rules[code],
+            "name_vi": presentation.rule_name(code),
+            "status_vi": presentation.label_status(code, rules[code].get("status")),
+        }
+        for code in sorted(wanted) if code in rules
+    }
 
 
 def _trim_history(history: list[dict] | None) -> list[dict]:
@@ -217,6 +240,8 @@ def build_context(
     con số đều được sao chép nguyên vẹn, vì đó là điều làm cho phép kiểm số ở
     `validator.py` có nghĩa.
     """
+    from hfml.llm import presentation
+
     intent = understanding.intent
 
     context = AiContext(
@@ -224,6 +249,8 @@ def build_context(
         intent=intent.value,
         topic=understanding.topic,
         overall_status=result.get("overall_status"),
+        overall_status_vi=presentation.label_status(
+            "OVERALL", result.get("overall_status")),
         profile=result.get("input_summary") or {},
         rules=_relevant_rules(result, intent),
         # Chỉ đưa phần ML mà intent thật sự cần. Hỏi về ngân sách mà context

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Loader2, Trash2 } from 'lucide-react'
 import {
   ASSET_LABELS,
   NEED_LABELS,
@@ -10,8 +10,13 @@ import {
 } from '../data/profile'
 import { BIRTH_YEARS, PROVINCES } from '../data/locations'
 import { currency } from '../lib/format'
-import { createHousehold, updateHousehold } from '../api/households'
+import {
+  createHousehold,
+  deleteHousehold,
+  updateHousehold,
+} from '../api/households'
 import { ApiError, type FieldErrors } from '../lib/api'
+import ConfirmDialog from '../components/ConfirmDialog'
 import {
   Field,
   MoneyField,
@@ -92,6 +97,7 @@ export default function InfoFormPage({
   onChange,
   onNavigate,
   onSaved,
+  onCleared,
 }: {
   profile: HouseholdProfile
   /** Đã có hồ sơ trên backend thì cập nhật, chưa có thì tạo mới. */
@@ -104,6 +110,12 @@ export default function InfoFormPage({
    * cũ hay giữ lại.
    */
   onSaved: (householdId: number, info?: { conversationRotated: boolean }) => void
+  /**
+   * Đã xoá xong ở backend — App phải trả `profile`, `householdId` và phiên chat
+   * về trạng thái của người dùng mới. Trang này không tự làm được: `profile`
+   * nằm ở App, và màn Chatbot chỉ dọn tin nhắn khi `chatResetToken` tăng.
+   */
+  onCleared: () => void
 }) {
   const toggleAsset = (key: AssetKey) =>
     onChange({
@@ -122,6 +134,8 @@ export default function InfoFormPage({
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+  const [confirmingClear, setConfirmingClear] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   /** Lỗi đầu tiên của một field do backend trả về. */
   const errorOf = (field: string) => fieldErrors[field]?.[0]
@@ -151,15 +165,84 @@ export default function InfoFormPage({
     }
   }
 
+  /**
+   * Xoá hồ sơ và mọi thứ bám theo nó.
+   *
+   * Chỉ cần gọi `deleteHousehold`: ràng buộc ON DELETE CASCADE của DB kéo theo
+   * tài sản, nhu cầu tài chính, thông tin khoản vay và toàn bộ phiên trò
+   * chuyện. Gọi thêm từng endpoint xoá lẻ là thừa và tạo ra cửa sổ mà một
+   * request hỏng để lại dữ liệu xoá dở.
+   *
+   * `householdId === null` nghĩa là phiên này chưa từng gửi hồ sơ lên backend —
+   * không có gì để xoá ở server, nhưng người dùng vẫn có thể đã gõ dở nửa form,
+   * nên vẫn phải dọn state.
+   */
+  const handleClear = async () => {
+    setClearing(true)
+    setFormError(null)
+
+    try {
+      if (householdId !== null) {
+        await deleteHousehold(householdId)
+      }
+      setFieldErrors({})
+      setConfirmingClear(false)
+      onCleared()
+    } catch (error) {
+      setConfirmingClear(false)
+      setFormError(
+        error instanceof ApiError
+          ? error.message
+          : 'Không xoá được dữ liệu, vui lòng thử lại.',
+      )
+    } finally {
+      setClearing(false)
+    }
+  }
+
   return (
     <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm sm:p-8">
-      <button
-        type="button"
-        onClick={() => onNavigate('home')}
-        className="mb-6 inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200"
-      >
-        <ArrowLeft size={16} /> Trang trước
-      </button>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => onNavigate('home')}
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200"
+        >
+          <ArrowLeft size={16} /> Trang trước
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmingClear(true)}
+          disabled={clearing || submitting}
+          className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100 disabled:opacity-60"
+        >
+          {clearing ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Trash2 size={16} />
+          )}
+          Xóa dữ liệu
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmingClear}
+        busy={clearing}
+        title="Xóa toàn bộ dữ liệu?"
+        description={
+          <>
+            Thao tác này xoá hồ sơ hộ gia đình, thông tin khoản vay và{' '}
+            <strong className="font-semibold text-slate-700">
+              toàn bộ lịch sử trò chuyện với AI
+            </strong>
+            . Dữ liệu không khôi phục lại được. Sau khi xoá, bạn bắt đầu lại từ
+            một phiên hoàn toàn mới.
+          </>
+        }
+        confirmLabel="Xóa dữ liệu"
+        onConfirm={handleClear}
+        onCancel={() => setConfirmingClear(false)}
+      />
 
       <div className="grid gap-x-8 gap-y-6 md:grid-cols-2">
         <Field

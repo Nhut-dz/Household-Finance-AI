@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\HouseholdAccessRequest;
 use App\Http\Requests\Api\StoreChatMessageRequest;
 use App\Services\ChatService;
+use App\Services\ConversationService;
 use App\Services\HouseholdService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
@@ -16,6 +17,7 @@ class ChatMessageController extends Controller
     public function __construct(
         private readonly HouseholdService $householdService,
         private readonly ChatService $chatService,
+        private readonly ConversationService $conversationService,
     ) {}
 
     #[OA\Get(
@@ -230,5 +232,38 @@ class ChatMessageController extends Controller
             $this->chatService->conversationHistory($conversation),
             __('lang.Messages_fetched')
         );
+    }
+
+    #[OA\Delete(
+        path: '/households/{id}/conversations',
+        operationId: 'destroyConversations',
+        description: 'Xoá HẲN mọi phiên trò chuyện của hộ, kể cả phiên đã đóng, '
+            .'cùng toàn bộ lượt hỏi đáp bên trong. Khác với việc xoay phiên khi '
+            .'hồ sơ đổi: xoay phiên chỉ đánh dấu closed và nội dung vẫn đọc được '
+            .'qua GET /conversations. Hồ sơ hộ gia đình KHÔNG bị đụng tới.',
+        summary: 'Xoá toàn bộ lịch sử hội thoại',
+        security: [[], ['bearerAuth' => []]],
+        tags: ['Chat'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'guest_session_id', in: 'query', required: false, schema: new OA\Schema(type: 'string', maxLength: 64)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Đã xoá'),
+            new OA\Response(response: 403, description: 'Hồ sơ không thuộc về người gọi'),
+            new OA\Response(response: 404, description: 'Không tìm thấy hồ sơ'),
+        ],
+    )]
+    public function destroyConversations(HouseholdAccessRequest $request, int $id): JsonResponse
+    {
+        $household = $this->householdService->findOwned(
+            $id,
+            $request->resolvedUser(),
+            $request->guestSessionId()
+        );
+
+        $this->conversationService->purge($household);
+
+        return $this->successResponse(null, __('lang.Conversations_deleted'));
     }
 }

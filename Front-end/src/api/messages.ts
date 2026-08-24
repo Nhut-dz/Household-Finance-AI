@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from '../lib/api'
+import { apiDelete, apiGet, apiPost } from '../lib/api'
 import { getGuestSessionId, guestQuery } from '../lib/guestSession'
 
 /**
@@ -103,3 +103,13 @@ export const getConversationMessages = (
   apiGet<ChatMessage[]>(
     `/households/${householdId}/conversations/${conversationId}/messages${guestQuery()}`,
   )
+
+/**
+ * Xoá HẲN mọi phiên trò chuyện của hộ, giữ nguyên hồ sơ.
+ *
+ * Dùng cho nút "Xóa dữ liệu" ở form khoản vay. Không nhầm với việc backend tự
+ * xoay phiên khi hồ sơ đổi: xoay phiên chỉ đánh dấu `closed`, nội dung vẫn đọc
+ * được qua `getConversations()`. Hàm này xoá thật.
+ */
+export const deleteConversations = (householdId: number) =>
+  apiDelete<null>(`/households/${householdId}/conversations${guestQuery()}`)

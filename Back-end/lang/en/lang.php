@@ -14,6 +14,7 @@ return [
     'Loan_application_deleted' => 'Loan application deleted successfully.',
     'Prediction_fetched' => 'Prediction fetched successfully.',
     'Messages_fetched'  => 'Conversation fetched successfully.',
+    'Conversations_deleted' => 'All conversation history deleted successfully.',
     'Message_sent'      => 'Message sent successfully.',
     'Registered'        => 'Registered successfully.',
     'Logged_in'         => 'Logged in successfully.',

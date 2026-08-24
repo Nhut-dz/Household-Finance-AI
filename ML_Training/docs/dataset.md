@@ -5,17 +5,17 @@
 - **Nguồn:** https://www.kaggle.com/c/home-credit-default-risk/data
 - **License:** theo điều khoản cuộc thi Kaggle — dùng cho mục đích học tập, không phân phối lại dữ liệu
 - **Thư mục:** `dataset/home-credit-default-risk` (**không commit vào git**)
-- **Chốt phiên bản lúc:** 2026-08-10T09:27:32.143598+00:00
+- **Chốt phiên bản lúc:** 2026-08-24T03:04:50.266737+00:00
 
 ## Phiên bản file (SHA-256)
 
 | File | Kích thước | SHA-256 |
 |---|---:|---|
 | `application_train.csv` | 158.4 MB | `52e96b895b1112e1…` |
-| `previous_application.csv` | 386.2 MB | `5046cd657ee04df2…` |
 | `bureau.csv` | 162.1 MB | `9d799143423f2807…` |
-| `installments_payments.csv` | 689.6 MB | `428c2e2496e4d6d6…` |
 | `HomeCredit_columns_description.csv` | 37 KB | `eef7665398228a80…` |
+
+Không lưu trên đĩa (ngoài phạm vi F04, **không cần tải**): previous_application, installments_payments
 
 ## Nhãn — `application_train.csv`
 
@@ -29,6 +29,18 @@
 | Accuracy của model đoán toàn `0` | 91.9271% |
 
 Con số cuối là lý do **không dùng accuracy để chọn model** ở ML02: một model không học gì đã đạt hơn 91%.
+
+## Chất lượng dữ liệu
+
+### `application_train.csv` — 307,511 dòng × 122 cột
+
+| Mức | Mã | Mô tả |
+|---|---|---|
+| error | `sentinel_value` | `DAYS_EMPLOYED` có 55,374 dòng (18.01%) mang giá trị canh gác 365,243 — phải chuyển NaN VÀ giữ cờ nhị phân, vì nhóm này vỡ nợ ít hơn hẳn |
+| warning | `placeholder_as_category` | Giá trị Unknown/XAP/XNA đang nằm như một hạng mục thật ở: CODE_GENDER (4), NAME_FAMILY_STATUS (2), ORGANIZATION_TYPE (55,374) |
+| warning | `high_missing` | 41 cột thiếu trên 50% dữ liệu (cao nhất `COMMONAREA_AVG` 69.9%) — impute cũng chỉ là bịa số |
+| info | `high_cardinality` | Categorical nhiều hạng mục (>30): `ORGANIZATION_TYPE` (58) — one-hot sẽ nổ chiều, cân nhắc gộp nhóm |
+| info | `class_imbalance` | `TARGET` mất cân bằng: 8.07% dương. Model đoán toàn lớp đa số đã đạt 91.93% accuracy — chọn model bằng PR-AUC, không dùng accuracy |
 
 ## Dữ liệu synthetic của ML01
 

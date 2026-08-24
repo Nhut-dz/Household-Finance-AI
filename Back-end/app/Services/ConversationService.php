@@ -139,6 +139,27 @@ class ConversationService
         ];
     }
 
+    /**
+     * Xoá HẲN mọi phiên trò chuyện của hộ, kể cả các phiên đã đóng.
+     *
+     * Khác `rotate()` ở đúng chỗ quan trọng nhất: `rotate()` chỉ ĐÓNG phiên cũ
+     * và để nội dung ở lại DB cho người dùng xem lại, còn đây là xoá thật.
+     *
+     * Nút "Xóa dữ liệu" bắt buộc phải dùng hàm này chứ không phải `rotate()`:
+     * người bấm nút đó muốn không còn dấu vết, mà phiên chỉ bị đóng thì
+     * `GET /households/{id}/conversations` vẫn trả về nguyên nội dung cũ —
+     * dữ liệu coi như đã xoá trên giao diện nhưng vẫn đọc được qua API.
+     *
+     * Từng lượt hỏi đáp tự đi theo nhờ ON DELETE CASCADE của
+     * `fk_consultations_conversation`.
+     *
+     * @return int Số phiên đã xoá.
+     */
+    public function purge(Household $household): int
+    {
+        return $household->conversations()->delete();
+    }
+
     private function open(Household $household): Conversation
     {
         return $household->conversations()->create([

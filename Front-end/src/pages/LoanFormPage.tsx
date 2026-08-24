@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, ArrowLeft, CheckCircle2, Info, Loader2 } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  Info,
+  Loader2,
+  Trash2,
+} from 'lucide-react'
 import {
   EDUCATION_LABELS,
   GENDER_LABELS,
@@ -16,11 +23,14 @@ import {
 import type { PageKey } from '../data/profile'
 import { currency } from '../lib/format'
 import {
+  deleteLoanApplication,
   fromLoanApplicationResponse,
   getLoanApplication,
   saveLoanApplication,
 } from '../api/loanApplication'
+import { deleteConversations } from '../api/messages'
 import { ApiError, type FieldErrors } from '../lib/api'
+import ConfirmDialog from '../components/ConfirmDialog'
 import {
   Field,
   MoneyField,
@@ -59,9 +69,22 @@ const OUT_OF_WORKFORCE = new Set(['retired', 'unemployed'])
 export default function LoanFormPage({
   householdId,
   onNavigate,
+  onConversationCleared,
+  onSaved,
 }: {
   householdId: number | null
   onNavigate: (page: PageKey) => void
+  /**
+   * Đã lưu khoản vay mới. App dùng tín hiệu này để gỡ lời nhắn "vừa xoá sạch
+   * dữ liệu" ở khung chat — người dùng vừa nhập số liệu mới thì câu đó hết đúng.
+   */
+  onSaved: () => void
+  /**
+   * Đã xoá xong hội thoại ở backend — App phải tăng `chatResetToken` để màn
+   * Chatbot dọn tin nhắn đang giữ trong state. Không có bước này thì dữ liệu
+   * đã mất ở server nhưng người dùng chuyển tab vẫn đọc được hội thoại cũ.
+   */
+  onConversationCleared: () => void
 }) {
   const [form, setForm] = useState<LoanApplicationForm>(emptyLoanForm)
   const [loading, setLoading] = useState(false)
@@ -69,6 +92,8 @@ export default function LoanFormPage({
   const [saved, setSaved] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+  const [confirmingClear, setConfirmingClear] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   const patch = (values: Partial<LoanApplicationForm>) => {
     setForm((prev) => ({ ...prev, ...values }))
@@ -105,6 +130,7 @@ export default function LoanFormPage({
       const data = await saveLoanApplication(householdId, form)
       setForm(fromLoanApplicationResponse(data))
       setSaved(true)
+      onSaved()
     } catch (error) {
       if (error instanceof ApiError) {
         setFormError(error.message)
@@ -114,6 +140,56 @@ export default function LoanFormPage({
       }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  /**
+   * Xoá thông tin khoản vay và lịch sử hội thoại.
+   *
+   * KHÔNG xoá hồ sơ hộ gia đình: form này không sở hữu hồ sơ, và người dùng
+   * bấm "Xóa dữ liệu" ở đây là muốn làm lại phương án vay chứ không phải khai
+   * lại thu nhập, chi tiêu, thành viên.
+   *
+   * Nhưng hội thoại thì phải xoá: các câu trả lời ML02 về khoản vay nằm chung
+   * một phiên với phần tư vấn tài chính, nên xoá khoản vay mà giữ hội thoại là
+   * để lại nguyên kết luận rủi ro tính trên con số vừa bị xoá.
+   *
+   * Xoá khoản vay TRƯỚC rồi mới xoá hội thoại: nếu đảo lại và bước hai hỏng,
+   * hội thoại đã mất trong khi khoản vay vẫn còn — mất dữ liệu mà chẳng đạt
+   * được gì. Thứ tự này thì bước một hỏng là dừng, chưa mất gì cả.
+   *
+   * 404 ở bước xoá khoản vay là chuyện bình thường: hộ chưa từng khai khoản
+   * vay nào. Vẫn phải chạy tiếp để dọn hội thoại và reset form.
+   */
+  const handleClear = async () => {
+    if (householdId === null) return
+
+    setClearing(true)
+    setFormError(null)
+
+    try {
+      try {
+        await deleteLoanApplication(householdId)
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404) throw error
+      }
+
+      await deleteConversations(householdId)
+
+      setForm(emptyLoanForm)
+      setFieldErrors({})
+      setSaved(false)
+      setConfirmingClear(false)
+      onConversationCleared()
+    } catch (error) {
+      setConfirmingClear(false)
+      setFormError(
+        error instanceof ApiError
+          ? error.message
+          : 'Không xoá được dữ liệu, vui lòng thử lại.',
+      )
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -187,13 +263,47 @@ export default function LoanFormPage({
 
   return (
     <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm sm:p-8">
-      <button
-        type="button"
-        onClick={() => onNavigate('info')}
-        className="mb-6 inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200"
-      >
-        <ArrowLeft size={16} /> Trang trước
-      </button>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => onNavigate('info')}
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200"
+        >
+          <ArrowLeft size={16} /> Trang trước
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmingClear(true)}
+          disabled={clearing || submitting || loading}
+          className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100 disabled:opacity-60"
+        >
+          {clearing ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Trash2 size={16} />
+          )}
+          Xóa dữ liệu
+        </button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmingClear}
+        busy={clearing}
+        title="Xóa dữ liệu khoản vay?"
+        description={
+          <>
+            Thao tác này xoá thông tin khoản vay và{' '}
+            <strong className="font-semibold text-slate-700">
+              toàn bộ lịch sử trò chuyện với AI
+            </strong>
+            , vì các kết luận về rủi ro đã dựa trên số liệu sắp bị xoá. Hồ sơ hộ
+            gia đình được giữ nguyên. Dữ liệu không khôi phục lại được.
+          </>
+        }
+        confirmLabel="Xóa dữ liệu"
+        onConfirm={handleClear}
+        onCancel={() => setConfirmingClear(false)}
+      />
 
       <div className="mb-6">
         <h1 className="text-xl font-bold text-slate-800">Thông tin khoản vay</h1>

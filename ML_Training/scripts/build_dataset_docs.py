@@ -36,11 +36,18 @@ def main() -> int:
 
     log_run_context(log)
 
-    missing = [n for n, ok in loader.available_files().items() if not ok]
+    # Chỉ chặn khi thiếu file BẮT BUỘC. Trước đây chặn theo `available_files()`
+    # nên vắng `previous_application.csv` — file ngoài phạm vi, cố ý không giữ —
+    # cũng làm script từ chối chạy và không sinh lại được manifest.
+    missing = loader.missing_required()
     if missing:
-        log.error("Thiếu file dataset: %s", ", ".join(missing))
+        log.error("Thiếu file dataset bắt buộc: %s", ", ".join(missing))
         log.error("Tải từ %s", quality.KAGGLE_URL)
         return 1
+
+    absent = [n for n in loader.OPTIONAL_FILES if not loader.resolve(n).exists()]
+    if absent:
+        log.info("Không có (ngoài phạm vi, không cần thiết): %s", ", ".join(absent))
 
     if args.verify:
         drift = quality.verify_manifest(compute_hash=compute_hash)

@@ -32,4 +32,5 @@ enum ApiEnum: string
 
     case HOUSEHOLD_CONVERSATION_INDEX = 'household.conversation.index';
     case HOUSEHOLD_CONVERSATION_MESSAGES = 'household.conversation.messages';
+    case HOUSEHOLD_CONVERSATION_DESTROY = 'household.conversation.destroy';
 }

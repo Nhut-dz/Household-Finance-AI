@@ -37,9 +37,32 @@ HOME_CREDIT_FILES: Final[dict[str, str]] = {
     "columns_description": "HomeCredit_columns_description.csv",
 }
 
-#: File duy nhất F04 thực sự dùng. Bốn file còn lại để dành, chưa nằm trong
-#: phạm vi (PLAN.md §4.3) — mỗi hồ sơ là một dòng độc lập nên không cần join.
+#: Bảng gốc của F04: mỗi hồ sơ một dòng, mang cột nhãn `TARGET`.
+#:
+#: KHÔNG phải file duy nhất được dùng — `bureau` cũng được đọc và gộp lại thành
+#: 9 trong 16 feature của model đang deploy (`aggregate_bureau` ở
+#: `ml02_credit_risk/features.py`). Chú thích cũ ở đây ghi "file duy nhất F04
+#: thực sự dùng", viết từ lúc chưa gộp bureau và không được sửa theo; ai đọc
+#: rồi tưởng thiếu `bureau.csv` vẫn train được sẽ mất thời gian.
+#:
+#: Hai file THỰC SỰ không dùng là `previous_application` và
+#: `installments_payments` — chưa nằm trong phạm vi (PLAN.md §4.3). Chúng đã bị
+#: xoá khỏi đĩa ngày 24/08/2026; muốn dùng phải tải lại từ Kaggle.
 PRIMARY_FILE: Final[str] = "application_train"
+
+#: File BẮT BUỘC phải có trên đĩa. Thiếu một trong ba là không chạy được F04:
+#: hai file đầu nuôi feature, file thứ ba nuôi `describe()` và `docs/dataset.md`.
+REQUIRED_FILES: Final[tuple[str, ...]] = (
+    "application_train", "bureau", "columns_description")
+
+#: File NGOÀI PHẠM VI — vắng mặt là bình thường, không phải lỗi.
+#:
+#: Đã bị xoá khỏi đĩa ngày 24/08/2026 để lấy lại 1,13 GB. Chúng vẫn nằm trong
+#: `HOME_CREDIT_FILES` để `resolve()` biết đường dẫn nếu sau này mở rộng phạm
+#: vi, và để thông báo lỗi chỉ đúng chỗ tải lại thay vì báo "không biết file".
+OPTIONAL_FILES: Final[tuple[str, ...]] = (
+    "previous_application", "installments_payments")
+
 
 #: Cột nhãn của ML02.
 TARGET_COLUMN: Final[str] = "TARGET"
@@ -67,6 +90,17 @@ def resolve(name: str) -> Path:
 def available_files() -> dict[str, bool]:
     """`{tên logic: có trên đĩa hay không}` — dùng cho health check và task 7."""
     return {name: resolve(name).exists() for name in HOME_CREDIT_FILES}
+
+
+def missing_required() -> list[str]:
+    """File BẮT BUỘC còn thiếu. Rỗng = đủ điều kiện chạy F04.
+
+    Tách khỏi `available_files()` vì đó là hai câu hỏi khác nhau: cái kia hỏi
+    "trên đĩa có những gì", cái này hỏi "đã đủ để chạy chưa". Gộp hai câu vào
+    một phép kiểm chính là lý do trước đây vắng `previous_application.csv`
+    cũng bị báo động ngang với vắng `application_train.csv`.
+    """
+    return [name for name in REQUIRED_FILES if not resolve(name).exists()]
 
 
 def require(name: str) -> Path:

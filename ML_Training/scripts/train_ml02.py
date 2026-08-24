@@ -249,6 +249,11 @@ def main() -> int:
     print("    .venv\\Scripts\\python.exe scripts/property_test_ml02.py")
     print("    .venv\\Scripts\\python.exe scripts/shap_overdue_ml02.py")
     print("    .venv\\Scripts\\python.exe scripts/testcases_ml01_ml02.py")
+    print()
+    # Sáu hình đã được các stage evaluate/compare/importance/select tự vẽ ngay
+    # sau khi ghi CSV. Lệnh dưới chỉ để VẼ LẠI khi sửa mã vẽ hoặc đổi --top-n.
+    print("  Vẽ lại hình báo cáo (không chạy lại task nào):")
+    print("    .venv\\Scripts\\python.exe scripts/plots_ml02.py")
     print("─" * width)
     return 0
 

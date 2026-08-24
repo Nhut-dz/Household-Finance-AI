@@ -14,6 +14,7 @@ return [
     'Loan_application_deleted' => 'Xoá thông tin khoản vay thành công.',
     'Prediction_fetched' => 'Dự đoán nhóm khuyến nghị thành công.',
     'Messages_fetched'  => 'Lấy hội thoại thành công.',
+    'Conversations_deleted' => 'Xoá toàn bộ lịch sử hội thoại thành công.',
     'Message_sent'      => 'Gửi thành công.',
     'Registered'        => 'Đăng ký thành công.',
     'Logged_in'         => 'Đăng nhập thành công.',
