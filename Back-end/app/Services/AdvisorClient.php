@@ -306,6 +306,8 @@ class AdvisorClient
      */
     private function householdPayload(Household $household): array
     {
+        $household->loadMissing('assets');
+
         return [
             'id' => $household->id,
             'representative_name' => $household->representative_name,
@@ -314,6 +316,7 @@ class AdvisorClient
             'household_size' => $household->household_size,
             'children_count' => $household->children_count,
             'supports_elderly' => $household->supports_elderly,
+            'has_dependents' => (bool) $household->supports_elderly,
             'monthly_income' => (float) $household->monthly_income,
             'monthly_living_cost' => (float) ($household->monthly_living_cost ?? 0),
             'has_debt' => $household->has_debt,
@@ -321,6 +324,7 @@ class AdvisorClient
             'monthly_debt_payment' => (float) $household->monthly_debt_payment,
             'has_savings' => $household->has_savings,
             'current_savings' => (float) $household->current_savings,
+            'assets' => $household->assets->map(fn ($a) => (string) $a->getRawOriginal('asset_type'))->all(),
         ];
     }
 

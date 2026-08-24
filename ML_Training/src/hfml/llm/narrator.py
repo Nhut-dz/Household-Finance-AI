@@ -1,4 +1,4 @@
-"""Diễn đạt kết quả ML ra tiếng Việt (F05 · M06, phần task 10–11).
+﻿"""Diễn đạt kết quả ML ra tiếng Việt (F05 · M06, phần task 10–11).
 
 Ràng buộc cứng của tầng này, và là lý do nó tồn tại tách khỏi tầng ml:
 
@@ -51,40 +51,35 @@ LOAN_RISK_DISCLAIMER: Final[str] = (
 #: NHÃN, không phải với hộ cụ thể, nên viết sẵn được và kiểm chứng được.
 _ML01_GUIDANCE: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
     "EMERGENCY": (
-        "Dòng tiền đang ở mức cần xử lý ngay: chi tiêu vượt thu nhập, hoặc quỹ "
-        "dự phòng chưa đủ sống một tháng.",
+        "Dòng tiền gia đình đang ở trạng thái cần can thiệp xử lý ngay: Chi tiêu sinh hoạt vượt quá thu nhập hàng tháng, hoặc số tiền tiết kiệm tích lũy chưa đủ trang trải chi phí tối thiểu cho một tháng.",
         (
-            "Rà lại các khoản chi lớn trong tháng và cắt những khoản hoãn được.",
-            "Ưu tiên gom đủ 1 tháng chi tiêu làm đệm trước khi tính bất cứ mục tiêu nào khác.",
-            "Chưa nên vay thêm ở giai đoạn này — thêm một kỳ trả nợ sẽ làm dòng tiền âm sâu hơn.",
+            "Tập trung rà soát và thắt chặt các khoản chi tiêu chưa thực sự cấp thiết trong ngắn hạn.",
+            "Ưu tiên hàng đầu là tích lũy đủ đệm dự phòng 1 tháng chi tiêu sinh hoạt trước khi thực hiện bất kỳ kế hoạch tài chính nào khác.",
+            "Tạm dừng việc đăng ký thêm các khoản vay mới để tránh làm gia tăng gánh nặng nghĩa vụ trả nợ hàng tháng.",
         ),
     ),
     "DEBT_FOCUS": (
-        "Phần thu nhập dành trả nợ đang chiếm tỉ trọng cao, nên xử lý nợ trước "
-        "khi tính tới tích lũy hay đầu tư.",
+        "Nghĩa vụ trả nợ hiện tại đang chiếm tỷ trọng lớn trong tổng thu nhập gia đình. Hệ thống khuyến nghị ưu tiên tập trung xử lý và cân bằng lại khoản nợ trước khi tính đến các mục tiêu tích lũy hay đầu tư dài hạn.",
         (
-            "Trả trước các khoản lãi suất cao nhất, giữ nguyên kỳ trả của các khoản còn lại.",
-            "Cân nhắc gộp nợ nếu đang có nhiều khoản nhỏ lãi cao.",
-            "Giữ quỹ dự phòng tối thiểu song song, đừng dồn toàn bộ số dư vào trả nợ.",
+            "Ưu tiên thanh toán trước các khoản nợ có lãi suất cao nhất để giảm thiểu chi phí lãi phát sinh.",
+            "Cân nhắc giải pháp gộp nợ hoặc tái cơ cấu kỳ hạn vay nếu đang gánh nhiều khoản vay nhỏ lẻ.",
+            "Duy trì song song quỹ dự phòng tối thiểu để chủ động ứng phó trước các tình huống bất ngờ mà không phải phát sinh thêm nợ mới.",
         ),
     ),
     "BUILD_BUFFER": (
-        "Dòng tiền đã dương và nợ trong tầm kiểm soát, việc còn thiếu là một "
-        "quỹ dự phòng đủ dày.",
+        "Gia đình bạn đã kiểm soát tốt dòng tiền hàng tháng và dư thặng dư ổn định. Bước quan trọng tiếp theo là củng cố thêm Quỹ dự phòng khẩn cấp để đạt độ dày an toàn tối ưu.",
         (
-            "Đặt mục tiêu quỹ dự phòng 3–6 tháng chi tiêu, gửi ở nơi rút được ngay.",
-            "Trích tự động một phần thu nhập ngay khi nhận, trước khi chi tiêu.",
-            "Đủ quỹ dự phòng rồi mới tính tới các kênh sinh lời dài hạn.",
+            "Đặt mục tiêu tích lũy Quỹ dự phòng khẩn cấp đạt mốc 3 đến 6 tháng chi tiêu sinh hoạt (gửi tại các kênh thanh khoản cao, dễ rút).",
+            "Thiết lập cơ chế tự động trích lập một phần thặng dư hàng tháng vào quỹ tích lũy ngay khi nhận thu nhập.",
+            "Khi Quỹ dự phòng đạt độ dày an toàn, gia đình có thể tự tin chuyển hướng sang các kênh đầu tư sinh lời dài hạn.",
         ),
     ),
     "GROWTH": (
-        "Không còn việc cấp thiết nào chắn đường: dòng tiền dương, nợ nhẹ, quỹ "
-        "dự phòng đã đủ.",
+        "Sức khỏe tài chính của gia đình bạn đang ở trạng thái rất lành mạnh và lý tưởng: Dòng tiền thặng dư dồi dào, tỷ lệ nợ trong tầm kiểm soát an toàn và đệm dự phòng đã đạt chuẩn.",
         (
-            "Duy trì quỹ dự phòng hiện có, đừng rút vào để dồn cho mục tiêu khác.",
-            "Phân bổ phần dư theo lớp tài sản (tiền gửi / trái phiếu / chứng chỉ quỹ) "
-            "thay vì dồn vào một chỗ.",
-            "Rà lại tỉ lệ phân bổ mỗi 6–12 tháng hoặc khi thu nhập đổi đáng kể.",
+            "Tiếp tục duy trì và bảo vệ Quỹ dự phòng hiện có, tránh rút tiền quỹ cho các mục tiêu chi tiêu ngẫu hứng.",
+            "Chủ động phân bổ phần thặng dư hàng tháng vào danh mục tài sản đa dạng (Tiền gửi tích lũy, Trái phiếu, Chứng chỉ quỹ sinh lời an toàn).",
+            "Định kỳ rà soát và tái cân đối tỷ lệ phân bổ tài sản mỗi 6 đến 12 tháng để tối ưu hóa hiệu quả tài chính dài hạn.",
         ),
     ),
 }
