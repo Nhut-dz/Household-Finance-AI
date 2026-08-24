@@ -59,3 +59,18 @@ llm:
   max_tokens: 4000
   # Nhiệt độ thấp: tầng llm chỉ diễn đạt lại JSON, không cần sáng tạo.
   temperature: 0.3
+
+  # Giới hạn thời gian MỘT lượt gọi Gemini (giây). Hết giờ thì coi như không
+  # gọi được và hạ cấp về câu dựng sẵn.
+  #
+  # Có con số này vì SDK google-genai mặc định tự thử lại có backoff khi gặp
+  # 429/5xx, và chuỗi thử lại đó từng kéo một lượt `/advise` vượt hẳn 30 giây
+  # mà Laravel chờ (`PYTHON_ADVISOR_TIMEOUT`). Người dùng chỉ thấy "Không kết
+  # nối được service tư vấn AI", còn log Python thì dừng lặng lẽ.
+  timeout_seconds: 18
+
+  # Ngân sách cho CẢ lượt sinh, gồm lần gọi đầu và lần sinh lại. Hết ngân
+  # sách thì bỏ lần sinh lại chứ không chờ tiếp: một câu trả lời dựng sẵn
+  # đúng số liệu đến trong 20 giây tốt hơn một câu hay hơn đến sau khi
+  # Laravel đã ngắt kết nối.
+  budget_seconds: 32

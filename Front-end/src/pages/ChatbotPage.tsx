@@ -104,12 +104,20 @@ export default function ChatbotPage({
   profile,
   householdId,
   chatResetToken,
+  chatResetReason,
   onNavigate,
 }: {
   profile: HouseholdProfile
   householdId: number | null
   /** Tăng khi backend xoay phiên; buộc effect nạp lại dù householdId không đổi. */
   chatResetToken: number
+  /**
+   * Vì sao màn chat trống. `rotated` = hồ sơ đổi nên mở phiên mới, phiên cũ vẫn
+   * còn trong DB. `cleared` = người dùng bấm "Xóa dữ liệu", phiên cũ ĐÃ BỊ XOÁ
+   * HẲN. Hai trường hợp phải nói hai câu khác nhau, nếu không là hứa với người
+   * dùng rằng có thể xem lại thứ đã không còn.
+   */
+  chatResetReason: 'rotated' | 'cleared' | null
   onNavigate: (page: PageKey) => void
 }) {
   const need = profile.needs.map((n) => NEED_LABELS[n]).join(', ') || 'Mua nhà'
@@ -257,7 +265,7 @@ export default function ChatbotPage({
               màn chat bỗng trống trơn mà không giải thích thì người dùng tưởng
               mất dữ liệu.
             */}
-            {!loading && messages.length === 0 && chatResetToken > 0 && (
+            {!loading && messages.length === 0 && chatResetReason === 'rotated' && (
               <p className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-slate-600">
                 Hồ sơ đã được cập nhật nên đây là một phiên trò chuyện mới. Hội
                 thoại trước vẫn được lưu lại, nhưng AI sẽ phân tích lại từ đầu
@@ -265,7 +273,20 @@ export default function ChatbotPage({
               </p>
             )}
 
-            {!loading && messages.length === 0 && chatResetToken === 0 && (
+            {/*
+              Sau khi bấm "Xóa dữ liệu": KHÔNG nói "hội thoại trước vẫn được lưu
+              lại" như trường hợp xoay phiên — ở đây phiên cũ đã bị xoá hẳn khỏi
+              DB, không xem lại được nữa.
+            */}
+            {!loading && messages.length === 0 && chatResetReason === 'cleared' && (
+              <p className="rounded-xl border border-rose-100 bg-rose-50 p-3 text-sm text-slate-600">
+                Đã xoá toàn bộ dữ liệu và lịch sử trò chuyện. Đây là một phiên
+                hoàn toàn mới — không còn thông tin nào từ lần trước được dùng
+                lại.
+              </p>
+            )}
+
+            {!loading && messages.length === 0 && chatResetReason === null && (
               <p className="text-sm text-slate-400">
                 Chưa có hội thoại nào. Hãy chọn một gợi ý bên dưới hoặc đặt câu hỏi
                 cho AI.

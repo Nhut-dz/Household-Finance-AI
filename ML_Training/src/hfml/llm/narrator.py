@@ -30,17 +30,21 @@ from __future__ import annotations
 from typing import Final
 
 #: Câu bắt buộc gắn cuối mọi lời tư vấn (PLAN.md §8.2 guardrail 3).
+#:
+#: Chữ thuần, không Markdown: màn Chatbot render nguyên trạng nên dấu gạch
+#: dưới bao quanh sẽ hiện ra thành ký tự, và nút đọc bằng giọng nói đọc luôn
+#: cả dấu. Xem `hfml.llm.presentation`.
 DISCLAIMER: Final[str] = (
-    "_Thông tin trên là khuyến nghị tham khảo được tính từ dữ liệu bạn cung cấp, "
-    "không phải tư vấn tài chính chuyên nghiệp._"
+    "Thông tin trên là khuyến nghị tham khảo được tính từ dữ liệu bạn cung cấp, "
+    "không phải tư vấn tài chính chuyên nghiệp."
 )
 
 #: Câu bắt buộc riêng cho ML02 (guardrail 4): kết quả là ƯỚC LƯỢNG, không
 #: phải quyết định cho vay. Nhầm hai thứ này là chỗ dễ gây hiểu sai nhất của
 #: cả hệ thống.
 LOAN_RISK_DISCLAIMER: Final[str] = (
-    "_Đây là ước lượng tham khảo dựa trên dữ liệu bạn tự khai, **không phải kết quả "
-    "thẩm định** và không thay thế quyết định của tổ chức tín dụng._"
+    "Đây là ước lượng tham khảo dựa trên dữ liệu bạn tự khai, không phải kết quả "
+    "thẩm định và không thay thế quyết định của tổ chức tín dụng."
 )
 
 #: Việc cần làm ứng với từng nhóm ML01. Đây là phần "tư vấn" — nó gắn với
@@ -87,7 +91,7 @@ _ML01_GUIDANCE: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
 
 
 def _bullets(items: tuple[str, ...] | list[str]) -> str:
-    return "\n".join(f"- {item}" for item in items)
+    return "\n".join(f"• {item}" for item in items)
 
 
 def _probability_lines(probabilities: list[dict]) -> str:
@@ -95,10 +99,17 @@ def _probability_lines(probabilities: list[dict]) -> str:
 
     Hiển thị đủ bốn dòng chứ không chỉ nhóm thắng: một hồ sơ 0,41 / 0,39 rất
     khác một hồ sơ 0,95 / 0,02, mà chỉ nhìn nhãn thì hai ca đó giống hệt nhau.
+
+    Gọi nhóm bằng `label_vi`, và KHÔNG lùi về `label` khi thiếu: mã nhóm là
+    `EMERGENCY`, `DEBT_FOCUS` — đúng thứ không được để lọt ra màn hình. Thiếu
+    bản tiếng Việt thì bỏ hẳn dòng đó, vì một dòng thiếu vẫn tốt hơn một dòng
+    người dùng không đọc được.
     """
+    from hfml.llm.presentation import percent
+
     return "\n".join(
-        f"- {p.get('label_vi') or p.get('label')}: **{float(p['probability']):.1%}**"
-        for p in probabilities
+        f"• {p['label_vi']}: {percent(float(p['probability']))}"
+        for p in probabilities if p.get("label_vi")
     )
 
 
@@ -122,37 +133,43 @@ def explain_ml01(
     làm nó đổi kết luận. Im lặng ở đây là để người dùng đọc một phỏng đoán
     mong manh như thể một kết luận chắc chắn (PLAN.md §8.1 task 7).
     """
+    from hfml.llm.presentation import percent
+
     headline, actions = _ML01_GUIDANCE.get(
         label,
         ("Chưa có diễn giải cho nhóm này.", ("Vui lòng liên hệ để được hỗ trợ thêm.",)),
     )
 
     parts = [
-        f"🧭 **Chẩn đoán sức khỏe tài chính: {label_vi}**",
+        f"🧭 Chẩn đoán sức khỏe tài chính: {label_vi}",
         "",
         headline,
         "",
-        f"Mức tin cậy của mô hình: **{confidence:.1%}**.",
+        f"Mức tin cậy của mô hình: {percent(confidence)}.",
     ]
 
     if low_confidence:
         parts += [
             "",
             "⚠️ Hồ sơ của bạn nằm gần ranh giới giữa hai nhóm nên kết quả này "
-            "**chưa chắc chắn**. Hãy đọc nó cùng phần đánh giá theo quy tắc bên "
+            "chưa chắc chắn. Hãy đọc nó cùng phần đánh giá theo quy tắc bên "
             "dưới thay vì chỉ nhìn một nhãn.",
         ]
 
     if probabilities:
-        parts += ["", "**Xác suất từng nhóm:**", _probability_lines(probabilities)]
+        parts += ["", "Xác suất từng nhóm:", _probability_lines(probabilities)]
 
-    parts += ["", "**Việc nên làm tiếp theo:**", _bullets(actions)]
+    parts += ["", "Việc nên làm tiếp theo:", _bullets(actions)]
 
     if rule_summary:
         parts += ["", rule_summary]
 
-    if model_version:
-        parts += ["", f"_Mô hình: `{model_version}`._"]
+    # `model_version` KHÔNG được in ra.
+    #
+    # Nó vẫn là tham số của hàm, và vẫn đi theo `AiResult` để đối chiếu khi cần
+    # truy một kết quả về đúng artifact đã sinh ra nó. Nhưng `ml01_xgboost_
+    # vfinal` không nói gì với người đang hỏi chuyện tiền nong của nhà mình —
+    # nó chỉ làm câu trả lời trông như một trang log.
 
     parts += ["", DISCLAIMER]
     return "\n".join(parts)
@@ -171,16 +188,26 @@ def explain_ml02(
     """Diễn đạt kết quả ML02 — mức rủi ro của khoản vay đang xét.
 
     Như `explain_ml01`, `label` là đầu vào chứ không phải kết quả tính ở đây.
-    `threshold` được in ra chứ không giấu đi: nói "rủi ro cao" mà không cho
-    biết ngưỡng nào phân định là một khẳng định không kiểm chứng được, và
-    ngưỡng đó **không phải 0,5** — tỉ lệ vỡ nợ nền chỉ 8,07% nên 0,5 sẽ xếp
-    gần như mọi hồ sơ vào nhóm rủi ro thấp.
+
+    `threshold` vẫn là tham số bắt buộc nhưng KHÔNG còn được in ra
+    ---------------------------------------------------------------
+    Bản trước in kèm "(ngưỡng phân loại đang dùng: 13,0%)" với lý do chính
+    đáng: nói "rủi ro cao" mà giấu ngưỡng phân định là một khẳng định không
+    kiểm chứng được, nhất là khi ngưỡng đó không phải 0,5 — tỉ lệ vỡ nợ nền
+    chỉ 8,07%.
+
+    Lý do đó đúng với người đọc báo cáo đánh giá, không đúng với người dùng
+    cuối: ngưỡng phân loại là tham số nội bộ của model, và trong một câu tư
+    vấn nó chỉ làm người đọc bối rối giữa hai con số phần trăm cạnh nhau.
+    Tính kiểm chứng được không mất đi — `threshold` vẫn nằm nguyên trong
+    `AiResult` mà `/inference` trả về, nơi người cần đối chiếu sẽ đọc.
     """
+    from hfml.llm.presentation import percent
+
     parts = [
-        f"⚖️ **Chẩn đoán rủi ro vay vốn: {label_vi}**",
+        f"⚖️ Chẩn đoán rủi ro vay vốn: {label_vi}",
         "",
-        f"Xác suất gặp khó khăn trả nợ ước tính: **{probability:.1%}** "
-        f"(ngưỡng phân loại đang dùng: {threshold:.1%}).",
+        f"Xác suất gặp khó khăn trả nợ ước tính: {percent(probability)}.",
     ]
 
     if loan_summary:
@@ -189,7 +216,7 @@ def explain_ml02(
     if top_factors:
         parts += [
             "",
-            "**Những yếu tố ảnh hưởng nhiều nhất tới kết quả này:**",
+            "Những yếu tố ảnh hưởng nhiều nhất tới kết quả này:",
             _bullets([
                 f"{f['feature_vi']}: {f['direction']}"
                 for f in top_factors
@@ -198,7 +225,6 @@ def explain_ml02(
 
     parts += ["", LOAN_RISK_DISCLAIMER]
 
-    if model_version:
-        parts += ["", f"_Mô hình: `{model_version}`._"]
+    # `model_version` không in ra — xem `explain_ml01`.
 
     return "\n".join(parts)

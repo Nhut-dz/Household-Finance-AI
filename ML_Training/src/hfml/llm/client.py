@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import functools
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Final
 
 from hfml.config import CONFIG
-from hfml.llm import guardrails, prompts
+from hfml.llm import guardrails, presentation, prompts
 from hfml.llm.narrator import DISCLAIMER, LOAN_RISK_DISCLAIMER
 from hfml.llm.understanding import TOPIC_LABELS
 from hfml.llm.validator import ValidationReport, validate
@@ -73,39 +74,89 @@ class Answer:
         }
 
     def as_text(self) -> str:
-        """Gộp thành một đoạn văn cho tầng hiển thị."""
-        parts = [self.explanation]
+        """Gộp thành một đoạn văn cho tầng hiển thị — CHỮ THUẦN, không Markdown.
+
+        Màn Chatbot render bằng `whitespace-pre-line` và không có bộ dựng
+        Markdown, nên `**Việc nên làm:**` hiện ra nguyên bốn dấu sao; nút "Đọc
+        bằng giọng nói" thì đọc luôn cả dấu. Xuống dòng và dấu chấm tròn diễn
+        đạt được cùng cấu trúc mà cả hai chỗ đều hiển thị đúng.
+
+        Mọi phần đều đi qua `to_plain_text`, kể cả phần do LLM viết ra: đây là
+        biên cuối, và nó không được phép tin bất kỳ nguồn nào ở phía trước.
+        """
+        clean = presentation.to_plain_text
+        parts = [clean(self.explanation)]
+
         if self.recommendations:
-            parts.append("\n**Việc nên làm:**")
-            order = {"high": "🔴", "medium": "🟠", "low": "🟢"}
+            parts.append("\nViệc nên làm:")
+            # Mức ưu tiên nói bằng chữ, không bằng chấm màu: `high` là mã nội
+            # bộ, còn một hình tròn đỏ thì máy đọc màn hình bỏ qua hoàn toàn.
+            order = {"high": "ưu tiên cao", "medium": "ưu tiên vừa",
+                     "low": "ưu tiên thấp"}
             for item in self.recommendations:
-                mark = order.get(str(item.get("priority", "")).lower(), "·")
-                parts.append(f"{mark} {item.get('action', '')}"
-                             + (f" — {item['reason']}" if item.get("reason") else ""))
+                mark = order.get(str(item.get("priority", "")).lower(), "")
+                action = clean(str(item.get("action", "")))
+                reason = clean(str(item.get("reason", "")))
+                line = f"• {action}" + (f" ({mark})" if mark else "")
+                parts.append(line + (f"\n  Lý do: {reason}" if reason else ""))
+
         if self.caveats:
-            parts.append("\n**Lưu ý:**")
-            parts += [f"- {c}" for c in self.caveats]
+            parts.append("\nLưu ý:")
+            parts += [f"• {clean(c)}" for c in self.caveats]
+
         if self.needs_more_data:
-            parts.append("\n**Cần bổ sung:**")
-            parts += [f"- {d}" for d in self.needs_more_data]
-        return "\n".join(parts)
+            parts.append("\nCần bổ sung:")
+            parts += [f"• {clean(d)}" for d in self.needs_more_data]
+
+        return presentation.to_plain_text("\n".join(parts))
 
 
 # --------------------------------------------------------------------------
 # Gọi Gemini
 # --------------------------------------------------------------------------
+def _timeout_seconds() -> float:
+    return float(CONFIG.llm.get("timeout_seconds") or 18)
+
+
+def _budget_seconds() -> float:
+    return float(CONFIG.llm.get("budget_seconds") or 32)
+
+
 @functools.lru_cache(maxsize=1)
 def _client():
-    """Client Gemini, nạp một lần. `None` khi chưa cấu hình API key."""
+    """Client Gemini, nạp một lần. `None` khi chưa cấu hình API key.
+
+    Hai tham số truyền tay chứ không để mặc định, và cả hai đều là chuyện đã
+    gây sự cố thật:
+
+    `timeout`  — mặc định của SDK rất rộng. `/advise` là bề mặt ĐỒNG BỘ với
+                 Laravel, nơi client bỏ chờ sau `PYTHON_ADVISOR_TIMEOUT`; một
+                 lượt gọi chậm hơn thế là công toi, vì câu trả lời về tới nơi
+                 thì không còn ai nhận.
+
+    `attempts=1` — tắt hẳn cơ chế tự thử lại của SDK. Nó thử lại có backoff
+                 khi gặp 429/5xx, và chuỗi đó nhân thời gian chờ lên nhiều
+                 lần: hết quota một lượt gọi 15 giây thành hơn 60 giây, vượt
+                 xa mọi hạn mức phía trên. Việc thử lại ở tầng này thuộc về
+                 `generate`, nơi có ngân sách để biết khi nào phải dừng.
+    """
     if not CONFIG.llm_api_key:
         log.info("Chưa có GEMINI_API_KEY — tầng LLM chạy chế độ template.")
         return None
     try:
         from google import genai
+        from google.genai import types
     except ImportError:
         log.warning("Chưa cài google-genai — chạy chế độ template.")
         return None
-    return genai.Client(api_key=CONFIG.llm_api_key)
+
+    return genai.Client(
+        api_key=CONFIG.llm_api_key,
+        http_options=types.HttpOptions(
+            timeout=int(_timeout_seconds() * 1000),
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
 
 
 def is_llm_available() -> bool:
@@ -118,6 +169,9 @@ def _call(system: str, user: str) -> dict | None:
     Ép `response_mime_type='application/json'` thay vì xin lịch sự trong
     prompt: model trả văn xuôi thì `validator` phải đoán đâu là khuyến nghị,
     đâu là giải thích, và phép kiểm mất độ chính xác.
+
+    Quá hạn giờ cũng trả `None` như mọi lỗi khác. Với tầng gọi, "gọi mãi không
+    xong" và "gọi không được" dẫn tới cùng một việc phải làm.
     """
     client = _client()
     if client is None:
@@ -187,6 +241,17 @@ def _template_answer(context) -> Answer:
 
     Theo cấu trúc nó không thể bịa số: mọi con số đều lấy trực tiếp từ
     context. Đó là lý do nó là đích hạ cấp an toàn.
+
+    Nó KHÔNG được phép nói bằng từ vựng nội bộ
+    --------------------------------------------
+    Bản trước dựng mỗi dòng rule bằng `f"- {code} ({status}): {message}"`, và
+    đó chính là nguồn của những dòng `RB01 (CRITICAL)` mà người dùng đọc phải.
+    Một lưới an toàn in ra mã nội bộ thì mỗi lần LLM hỏng là một lần người
+    dùng thấy ruột gan hệ thống — đúng lúc trải nghiệm đã kém sẵn.
+
+    Nên ở đây rule được gọi bằng TÊN NGHIỆP VỤ và trạng thái được dịch sang
+    tiếng Việt. Hai bảng tra nằm ở `presentation`, dùng chung với bước quét
+    cuối, nên không có cách nào hai nơi lệch nhau.
     """
     parts: list[str] = []
     recommendations: list[dict] = []
@@ -195,8 +260,8 @@ def _template_answer(context) -> Answer:
     ml01 = context.ml01 or {}
     if ml01.get("available"):
         parts.append(
-            f"Nhóm định hướng tài chính của gia đình bạn: **{ml01['label_vi']}** "
-            f"(mức tin cậy {ml01['probability']:.1%}).")
+            f"Nhóm định hướng tài chính của gia đình bạn: {ml01['label_vi']} "
+            f"(mức tin cậy {presentation.percent(ml01['probability'])}).")
         if ml01.get("confidence", {}).get("low_confidence"):
             caveats.append(
                 "Hồ sơ nằm gần ranh giới giữa các nhóm nên kết quả này chưa "
@@ -205,8 +270,9 @@ def _template_answer(context) -> Answer:
     ml02 = context.ml02 or {}
     if ml02.get("available"):
         parts.append(
-            f"Mức rủi ro của khoản vay: **{ml02['label_vi']}** — xác suất gặp "
-            f"khó khăn trả nợ ước tính {ml02['probability']:.1%}.")
+            f"Mức rủi ro của khoản vay: {ml02['label_vi']} — xác suất gặp khó "
+            f"khăn trả nợ ước tính "
+            f"{presentation.percent(ml02['probability'])}.")
         caveats.append(LOAN_RISK_DISCLAIMER)
 
     for code, rule in (context.rules or {}).items():
@@ -217,11 +283,14 @@ def _template_answer(context) -> Answer:
         # nhất của một lưới an toàn: nhìn từ ngoài tưởng nó đã đỡ.
         message = (rule.get("details", {}).get("summary_vi")
                    or rule.get("message_vi") or rule.get("message") or "")
-        status = rule.get("status", "")
+        name = presentation.rule_name(code)
+        status_vi = presentation.label_status(code, rule.get("status"))
+
         if message:
-            parts.append(f"- {code} ({status}): {message}")
-        elif status:
-            parts.append(f"- {code}: {status}")
+            parts.append(f"• {name.capitalize()}: {message}"
+                         if name else f"• {message}")
+        elif name and status_vi:
+            parts.append(f"• {name.capitalize()}: {status_vi}.")
 
     for warning in context.warnings or []:
         caveats.append(warning.get("message", ""))
@@ -230,7 +299,8 @@ def _template_answer(context) -> Answer:
     parts.append(DISCLAIMER)
 
     return Answer(
-        explanation="\n".join(p for p in parts if p is not None),
+        explanation=presentation.to_plain_text(
+            "\n".join(p for p in parts if p is not None)),
         recommendations=recommendations,
         caveats=[c for c in caveats if c],
         source=SOURCE_TEMPLATE,
@@ -241,11 +311,22 @@ def _template_answer(context) -> Answer:
 # --------------------------------------------------------------------------
 # Điểm vào
 # --------------------------------------------------------------------------
-def generate(context, understanding) -> Answer:
+def generate(context, understanding, budget_seconds: float | None = None) -> Answer:
     """Sinh giải thích + khuyến nghị cho một lượt hỏi.
 
     Trình tự: che dữ liệu nhạy cảm → gọi LLM → kiểm → sinh lại nếu cần → hạ
     cấp về template nếu vẫn không đạt.
+
+    `budget_seconds` giới hạn CẢ lượt sinh, không phải từng lời gọi. Hết ngân
+    sách thì bỏ lần sinh lại và hạ cấp ngay.
+
+    Vì sao ngân sách nằm ở đây chứ không chỉ ở timeout mỗi lời gọi
+    ----------------------------------------------------------------
+    Hai lời gọi mỗi lời 18 giây vẫn nằm trong hạn mức của chính nó, mà cộng
+    lại thì đã 36 giây — quá thứ mà `/advise` được phép tiêu. Timeout canh
+    một lời gọi; ngân sách canh lời hứa với người đang chờ. Thiếu vế thứ hai
+    thì mỗi lần lần đầu bị đánh trượt là một lần người dùng chờ gấp đôi rồi
+    nhận về lỗi kết nối, thay vì nhận câu dựng sẵn đúng số liệu.
     """
     # Task 7: che danh tính TRƯỚC khi dựng prompt.
     guardrails.apply(context)
@@ -253,7 +334,7 @@ def generate(context, understanding) -> Answer:
     # Thiếu dữ liệu bắt buộc thì HỎI, không gọi LLM với context rỗng.
     if not understanding.can_answer:
         return Answer(
-            explanation=(
+            explanation=presentation.to_plain_text(
                 "Mình chưa đủ dữ liệu để trả lời câu hỏi này.\n\n"
                 f"{understanding.ask_message()}"),
             needs_more_data=[r.label for r in understanding.missing],
@@ -263,6 +344,9 @@ def generate(context, understanding) -> Answer:
     system = prompts.SYSTEM_PROMPT
     user = prompts.render_user_prompt(
         context, TOPIC_LABELS.get(context.topic, context.topic))
+
+    budget = _budget_seconds() if budget_seconds is None else budget_seconds
+    deadline = time.monotonic() + budget
 
     for attempt in range(MAX_RETRIES + 1):
         payload = _call(system, user)
@@ -283,11 +367,29 @@ def generate(context, understanding) -> Answer:
 
         report = validate(payload, context)
         if report.is_valid:
+            # Quét SAU khi kiểm, không phải trước.
+            #
+            # `validate` đối chiếu từng con số trong câu trả lời với
+            # `numeric_facts`, nên nó phải nhìn thấy đúng thứ model đã viết ra.
+            # Quét trước là kiểm một văn bản khác với văn bản model sinh ra.
+            #
+            # Đổi lại, bước quét không được đụng tới con số — điều đó là ràng
+            # buộc của `to_plain_text` và có test riêng canh.
+            clean = presentation.to_plain_text
             return Answer(
-                explanation=str(payload.get("explanation", "")),
-                recommendations=list(payload.get("recommendations") or []),
-                caveats=[str(c) for c in (payload.get("caveats") or [])],
-                needs_more_data=[str(d) for d in
+                explanation=clean(str(payload.get("explanation", ""))),
+                # Quét từng trường của khuyến nghị chứ không quét cả khối:
+                # `priority` là mã nội bộ (`high`/`medium`/`low`) mà
+                # `Answer.as_text()` dịch sang chữ, nên nó phải còn nguyên.
+                recommendations=[
+                    {**item,
+                     "action": clean(str(item.get("action", ""))),
+                     "reason": clean(str(item.get("reason", "")))}
+                    if isinstance(item, dict) else item
+                    for item in (payload.get("recommendations") or [])
+                ],
+                caveats=[clean(str(c)) for c in (payload.get("caveats") or [])],
+                needs_more_data=[clean(str(d)) for d in
                                  (payload.get("needs_more_data") or [])],
                 source=SOURCE_LLM if attempt == 0 else SOURCE_LLM_RETRY,
                 model=CONFIG.llm["model"],
@@ -296,6 +398,17 @@ def generate(context, understanding) -> Answer:
 
         log.warning("Câu trả lời lần %d không đạt: %s", attempt + 1,
                     [i.check for i in report.errors])
+
+        remaining = deadline - time.monotonic()
+        # Còn lượt sinh lại, nhưng không còn đủ thời gian để dùng nó.
+        if attempt < MAX_RETRIES and remaining < _timeout_seconds():
+            log.warning(
+                "Bỏ lần sinh lại: chỉ còn %.1fs trong ngân sách %.0fs. Hạ cấp "
+                "về câu trả lời dựng từ dữ liệu đã tính.", remaining, budget)
+            answer = _template_answer(context)
+            answer.validation = report.to_dict()
+            return answer
+
         if attempt < MAX_RETRIES:
             user = user + _retry_hint(report)
         else:

@@ -14,7 +14,8 @@ lệch giữa hai model là thật hay chỉ là nhiễu. Vì task 5 bỏ K-Fold
     task 14         chốt model + kiểm trên test
     task 15         export
 
-Thành phẩm: `src/training/runs/ml02_comparison/` — 4 bảng + metadata.
+Thành phẩm: `src/training/runs/ml02_comparison/` — 4 bảng + metadata, kèm hình
+`model_comparison.png` (bỏ bằng `--no-plots`).
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ import argparse
 import sys
 
 from hfml.logger import get_logger
+from hfml.ml.evaluation.plots_ml02 import generate_comparison_plots
 from hfml.ml.ml02_credit_risk.compare import (
     CONFIDENCE,
     N_BOOTSTRAP,
@@ -42,6 +44,8 @@ def main() -> int:
                         help=f"số lần bootstrap (mặc định {N_BOOTSTRAP})")
     parser.add_argument("--no-save", action="store_true",
                         help="chỉ in báo cáo, không ghi file")
+    parser.add_argument("--no-plots", action="store_true",
+                        help="ghi CSV nhưng không vẽ hình")
     args = parser.parse_args()
 
     data = load_training_data()
@@ -126,6 +130,16 @@ def main() -> int:
     for name, path in write_comparison(
             evaluations, args.resamples, tables=tables).items():
         print(f"  ghi → {path}")
+
+    if args.no_plots:
+        print()
+        print("(--no-plots: không vẽ hình nào)")
+        return 0
+
+    # Vẽ NGAY SAU khi ghi CSV. Hàm vẽ đọc lại chính những file vừa ghi ở trên,
+    # nên hình không bao giờ dựng được từ số của lần chạy trước.
+    for name, path in generate_comparison_plots().items():
+        print(f"  vẽ  → {path}")
     return 0
 
 

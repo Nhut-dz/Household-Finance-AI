@@ -1,6 +1,6 @@
 {
   "source": "https://www.kaggle.com/c/home-credit-default-risk/data",
-  "generated_at": "2026-08-10T09:27:32.143598+00:00",
+  "generated_at": "2026-08-24T03:04:50.266737+00:00",
   "dataset_dir": "dataset/home-credit-default-risk",
   "files": {
     "application_train": {
@@ -9,23 +9,11 @@
       "modified": "2022-11-03T19:48:20+00:00",
       "sha256": "52e96b895b1112e1c853f670e58372719c8441c5ed1c57ac2f7fad559d784f5f"
     },
-    "previous_application": {
-      "file": "previous_application.csv",
-      "size_bytes": 404973293,
-      "modified": "2022-11-03T19:49:34+00:00",
-      "sha256": "5046cd657ee04df2eaa6dc8308ae86be6b3b1763674a3f63574886a2f2896505"
-    },
     "bureau": {
       "file": "bureau.csv",
       "size_bytes": 170016717,
       "modified": "2022-11-03T19:47:26+00:00",
       "sha256": "9d799143423f280720cf51c1bfbbab2a0422da8ff2763335bb30bf43155494f7"
-    },
-    "installments_payments": {
-      "file": "installments_payments.csv",
-      "size_bytes": 723118349,
-      "modified": "2022-11-03T19:48:28+00:00",
-      "sha256": "428c2e2496e4d6d697ee8270e98497e5213c41be16d882eed1bc95b133726797"
     },
     "columns_description": {
       "file": "HomeCredit_columns_description.csv",
@@ -34,7 +22,10 @@
       "sha256": "eef7665398228a80f7367c9258220c5fbe1038f3f54094244f354d54e2d4fb03"
     }
   },
-  "missing_files": [],
+  "missing_files": [
+    "previous_application",
+    "installments_payments"
+  ],
   "application_train": {
     "n_rows": 307511,
     "n_positive": 24825,

@@ -170,8 +170,10 @@ def test_fingerprint_without_hash_is_cheap():
 @needs_dataset
 def test_manifest_structure():
     m = quality.build_manifest(compute_hash=False)
-    assert m["missing_files"] == []
-    assert set(m["files"]) == set(loader.HOME_CREDIT_FILES)
+    # `missing_files` nay chứa đúng hai file ngoài phạm vi đã xoá khỏi đĩa
+    # (24/08/2026), không phải rỗng như trước.
+    assert sorted(m["missing_files"]) == sorted(loader.OPTIONAL_FILES)
+    assert set(m["files"]) == set(loader.REQUIRED_FILES)
     assert m["application_train"]["n_rows"] == 307_511
     assert m["source"].startswith("https://")
 

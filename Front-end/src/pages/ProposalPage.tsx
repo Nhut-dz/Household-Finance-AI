@@ -16,6 +16,7 @@ import type { PageKey } from '../data/profile'
 import { dong } from '../lib/format'
 import { getProposal, type Proposal } from '../api/proposal'
 import { deleteHousehold } from '../api/households'
+import ConfirmDialog from '../components/ConfirmDialog'
 import PredictionCard from '../components/PredictionCard'
 import { ApiError } from '../lib/api'
 
@@ -122,6 +123,7 @@ export default function ProposalPage({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
+  const [confirmingClear, setConfirmingClear] = useState(false)
 
   useEffect(() => {
     if (householdId === null) {
@@ -151,11 +153,14 @@ export default function ProposalPage({
     if (householdId === null) return
 
     setClearing(true)
+    setError(null)
     try {
       await deleteHousehold(householdId)
       setProposal(null)
+      setConfirmingClear(false)
       onCleared()
     } catch (err) {
+      setConfirmingClear(false)
       setError(
         err instanceof ApiError
           ? err.message
@@ -231,7 +236,7 @@ export default function ProposalPage({
           Chẩn đoán hồ sơ tài chính
         </h1>
         <button
-          onClick={handleClear}
+          onClick={() => setConfirmingClear(true)}
           disabled={clearing}
           className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-100 disabled:opacity-60"
         >
@@ -246,6 +251,30 @@ export default function ProposalPage({
           <CheckCircle2 size={16} /> AI đã phân tích
         </span>
       </div>
+
+      {/*
+        Cùng hộp xác nhận với hai form nhập liệu. Nút này xoá đúng thứ mà nút
+        bên form "Nhập thông tin" xoá (cả hộ gia đình), nên lời cảnh báo phải
+        giống hệt — hai câu khác nhau cho cùng một hậu quả thì người dùng sẽ
+        đoán rằng hậu quả cũng khác nhau.
+      */}
+      <ConfirmDialog
+        open={confirmingClear}
+        busy={clearing}
+        title="Xóa toàn bộ dữ liệu?"
+        description={
+          <>
+            Thao tác này xoá hồ sơ hộ gia đình, thông tin khoản vay,{' '}
+            <strong className="font-semibold text-slate-700">
+              toàn bộ lịch sử trò chuyện với AI
+            </strong>{' '}
+            và cả bản chẩn đoán đang xem. Dữ liệu không khôi phục lại được.
+          </>
+        }
+        confirmLabel="Xóa dữ liệu"
+        onConfirm={handleClear}
+        onCancel={() => setConfirmingClear(false)}
+      />
 
       {error && (
         <div className="mb-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">

@@ -13,7 +13,8 @@ Ba bước, không được đảo thứ tự:
 Export artifact là task 15 — script này KHÔNG ghi model.
 
 Thành phẩm: `src/training/runs/ml02_selection/` — `decision.json`,
-`final_metrics.csv`, `test_confusion.csv`.
+`final_metrics.csv`, `test_confusion.csv`, kèm hình
+`confusion_matrix_test.png` (bỏ bằng `--no-plots`).
 """
 from __future__ import annotations
 
@@ -42,6 +43,7 @@ from hfml.ml.ml02_credit_risk.select import (
     write_selection,
 )
 from hfml.ml.evaluation.metrics import binary_metrics
+from hfml.ml.evaluation.plots_ml02 import generate_selection_plots
 
 log = get_logger(__name__)
 
@@ -53,6 +55,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-save", action="store_true",
                         help="chỉ in báo cáo, không ghi file")
+    parser.add_argument("--no-plots", action="store_true",
+                        help="ghi CSV nhưng không vẽ hình")
     args = parser.parse_args()
 
     comparison = pd.read_csv(compare_dir() / "comparison.csv")
@@ -174,6 +178,16 @@ def main() -> int:
     print()
     for name, path in write_selection(report).items():
         print(f"  ghi → {path}")
+
+    if args.no_plots:
+        print()
+        print("(--no-plots: không vẽ hình nào)")
+        return 0
+
+    # Vẽ NGAY SAU khi ghi CSV. Hàm vẽ đọc lại chính những file vừa ghi ở trên,
+    # nên hình không bao giờ dựng được từ số của lần chạy trước.
+    for name, path in generate_selection_plots().items():
+        print(f"  vẽ  → {path}")
     return 0
 
 

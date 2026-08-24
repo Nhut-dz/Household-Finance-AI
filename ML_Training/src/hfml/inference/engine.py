@@ -179,13 +179,19 @@ def _finish(result: InferenceResult, question: str, answer,
 def _failure_text(result: InferenceResult) -> str:
     """Câu nói cho người dùng khi pipeline dừng sớm.
 
-    Nêu đích danh trường sai. "Đã xảy ra lỗi" không cho người dùng cách nào
-    sửa; "Thiếu năm sinh" thì họ điền được ngay.
+    Nêu đích danh chỗ sai. "Đã xảy ra lỗi" không cho người dùng cách nào sửa;
+    "Thiếu năm sinh" thì họ điền được ngay.
+
+    Nêu bằng LỜI, không bằng tên trường: `item.field` là `birth_year`,
+    `loan_application.asset_price` — tên cột trong schema, không phải nhãn
+    người dùng thấy trên màn nhập. In ra thì họ phải tự dịch ngược xem nó ứng
+    với ô nào trên form, trong khi `item.message` đã nói đủ bằng tiếng Việt.
     """
+    from hfml.llm import presentation
+
     lines = ["Mình chưa xử lý được hồ sơ này."]
-    for item in result.errors:
-        lines.append(f"- {item.message}" + (f" ({item.field})" if item.field else ""))
-    return "\n".join(lines)
+    lines += [f"• {item.message}" for item in result.errors if item.message]
+    return presentation.to_plain_text("\n".join(lines))
 
 
 # --------------------------------------------------------------------------

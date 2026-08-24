@@ -20,7 +20,7 @@ import pytest
 
 from hfml.api.intents import IntentCode
 from hfml.llm import chat, client, context as context_mod, guardrails, prompts
-from hfml.llm import validator
+from hfml.llm import presentation, validator
 from hfml.llm.context import build_context, build_numeric_facts
 from hfml.llm.understanding import understand
 
@@ -482,8 +482,16 @@ class TestGenerate:
         assert not ctx.ml01 and not ctx.ml02
 
         answer = client.generate(ctx, u)
-        assert "RB01" in answer.explanation
+        # Gọi rule bằng TÊN NGHIỆP VỤ, không bằng mã.
+        #
+        # Test này từng khẳng định `"RB01" in answer.explanation` — nó chốt
+        # đúng cái rò rỉ mà 24/08/2026 phải đi bịt: người dùng đọc được
+        # `- RB01 (CRITICAL): …` ngay trên màn chat. Điều cần canh vẫn là điều
+        # cũ (lưới an toàn không được rỗng), chỉ khác ở chỗ nội dung phải là
+        # thứ người dùng đọc hiểu được.
+        assert "Dòng tiền hằng tháng" in answer.explanation
         assert "Dòng tiền ròng dương." in answer.explanation
+        assert not presentation.has_internal_vocabulary(answer.explanation)
 
     def test_template_khong_the_bia_so(self, health, monkeypatch):
         """Đích hạ cấp phải là thứ KHÔNG CẦN TIN.

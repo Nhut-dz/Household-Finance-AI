@@ -7,6 +7,18 @@ không**, và câu đó chỉ trả lời được ở mức endpoint.
 Không test nào cần artifact ML01 trên đĩa. Nhánh ML01 được kiểm bằng cách
 thay `get_ml01_model` — mục tiêu là kiểm ĐỊNH TUYẾN và HỢP ĐỒNG, còn chất
 lượng dự đoán đã có bộ test riêng của F03.
+
+Không test nào gọi ra mạng ngoài
+----------------------------------
+Từ 24/08/2026 mọi nhánh của `/advise` kết thúc ở tầng LLM, nên nếu để nguyên
+thì cả file này gọi Gemini thật: chậm (đo được 247 giây cho một lượt chạy),
+tốn quota, và tệ nhất là KHÔNG TẤT ĐỊNH — câu chữ đổi mỗi lần chạy nên không
+có gì để khẳng định.
+
+Fixture `llm_offline` tắt lượt gọi đó cho toàn file. Đây không phải né tránh:
+file này kiểm định tuyến, và định tuyến xảy ra TRƯỚC bước diễn giải. Phần "LLM
+có thật sự được nối vào không" được kiểm riêng ở cuối file, nơi lượt gọi được
+thay bằng một bản trả lời cố định.
 """
 from __future__ import annotations
 
@@ -16,6 +28,8 @@ from fastapi.testclient import TestClient
 
 from hfml.api import main
 from hfml.api.intents import IntentCode
+from hfml.llm import client as llm_client
+from hfml.llm import presentation
 
 HOUSEHOLD = {
     "representative_name": "Nguyễn Văn A",
@@ -70,6 +84,17 @@ LOAN_APPLICATION = {
     "has_overdue_loan": False,
     "total_overdue_amount": 0.0,
 }
+
+
+@pytest.fixture(autouse=True)
+def llm_offline(monkeypatch):
+    """Không lượt gọi Gemini nào trong file này — xem docstring đầu file.
+
+    `_call` trả `None` là đúng ca "không gọi được LLM", nên `/advise` hạ cấp
+    về bản dựng sẵn của từng nhánh. Đó chính là thứ các test dưới đây khẳng
+    định, và cũng là sàn chất lượng mà người dùng thật sẽ nhận khi mạng hỏng.
+    """
+    monkeypatch.setattr(llm_client, "_call", lambda *_args, **_kwargs: None)
 
 
 @pytest.fixture
@@ -317,3 +342,109 @@ def test_amount_no_longer_hijacks_an_explicit_chip_intent(client):
 
     assert body["intent_code"] == IntentCode.SAVINGS_PACKAGE.value
     assert "Gói tư vấn tiết kiệm" in body["response_text"]
+
+
+# ==========================================================================
+# Tầng LLM phải thật sự nằm trên đường đi
+# ==========================================================================
+# Đây là phần chống tái phát cho sự cố 24/08/2026: `/advise` ghép
+# `response_text` bằng f-string và không hề gọi LLM, nên người dùng đọc được
+# nguyên `RB01`, `CRITICAL`, `DEFICIT`, `REJECTED`. Tầng diễn giải vẫn tồn tại
+# và vẫn có test riêng đầy đủ — nó chỉ không được nối vào endpoint mà backend
+# thật sự gọi. Bộ test cũ không bắt được vì mọi khẳng định đều đặt trên chính
+# chuỗi f-string đó.
+
+#: Câu trả lời cố định thay cho một lượt gọi Gemini đạt yêu cầu.
+#:
+#: Không chứa con số nào, và đó là chủ ý: `validator` đối chiếu mọi số với
+#: `numeric_facts`, nên một câu trả lời giả có số sẽ bị đánh trượt vì bịa số
+#: và test hoá ra lại đi kiểm nhánh hạ cấp.
+_LLM_REPLY = {
+    "explanation": "Đây là phần giải thích do tầng diễn giải viết ra.",
+    "recommendations": [
+        {"priority": "high", "action": "Ưu tiên gom đủ quỹ dự phòng",
+         "reason": "Đệm chi tiêu hiện còn mỏng"},
+    ],
+    "caveats": [],
+    "needs_more_data": [],
+}
+
+
+@pytest.fixture
+def llm_online(monkeypatch):
+    """Thay lượt gọi Gemini bằng một câu trả lời cố định, đạt yêu cầu kiểm."""
+    monkeypatch.setattr(llm_client, "_call",
+                        lambda *_args, **_kwargs: dict(_LLM_REPLY))
+
+
+def test_advise_actually_sends_the_result_through_the_llm(client, llm_online):
+    """Câu chữ trả về phải là của tầng diễn giải, không phải chuỗi f-string.
+
+    Chống tái phát trực tiếp: nếu ai đó nối lại `response_text` thẳng từ
+    RuleEngine, câu của tầng diễn giải sẽ biến mất và test này đỏ ngay.
+    """
+    body = ask(client, "Gói tiết kiệm", intent_code="SAVINGS_PACKAGE")
+
+    assert "Đây là phần giải thích do tầng diễn giải viết ra." in body["response_text"]
+    assert "Ưu tiên gom đủ quỹ dự phòng" in body["response_text"]
+    # `model_used` nói ra CẢ engine lẫn người viết câu chữ.
+    assert "+LLM/" in body["model_used"]
+
+
+def test_advise_falls_back_to_prewritten_text_when_the_llm_fails(client):
+    """LLM hỏng thì vẫn phải có câu trả lời đúng số liệu, không phải lỗi.
+
+    `llm_offline` đang bật (autouse), nên đây chính là ca LLM không gọi được.
+    """
+    body = ask(client, "Gói tiết kiệm", intent_code="SAVINGS_PACKAGE")
+
+    assert "Gói tư vấn tiết kiệm" in body["response_text"]
+    assert body["model_used"].endswith("+Template")
+
+
+@pytest.mark.parametrize("question,extra", [
+    ("Gói tiết kiệm", {"intent_code": "SAVINGS_PACKAGE"}),
+    ("Quy tắc 50/30/20", {"intent_code": "BUDGET_50_30_20"}),
+    ("Chẩn đoán rủi ro vay vốn",
+     {"intent_code": "LOAN_RISK_DIAGNOSIS", "loan_application": LOAN_APPLICATION}),
+    ("Tôi muốn mua nhà giá 3 tỷ thì vay được bao nhiêu?", {}),
+    ("Tôi muốn tiết kiệm cho con đi học", {}),
+])
+def test_no_branch_ever_leaks_internal_vocabulary(client, question, extra):
+    """Không nhánh nào được để lọt mã rule, mã trạng thái hay slug model.
+
+    Chạy trên nhánh HẠ CẤP (LLM đang tắt) vì đó là nhánh dựng câu bằng
+    f-string — chỗ mà mọi lần rò trước đây đều bắt nguồn. Nhánh có LLM còn có
+    thêm prompt cấm và một lượt kiểm nữa, nên nó là ca dễ hơn.
+    """
+    text = ask(client, question, **extra)["response_text"]
+
+    assert not presentation.has_internal_vocabulary(text), text
+
+
+@pytest.mark.parametrize("marker", ["**", "```", "__"])
+def test_no_branch_ever_leaks_markdown(client, marker):
+    """Màn Chatbot render chữ nguyên trạng, nên Markdown chỉ là rác trên màn hình.
+
+    Nó còn bị nút "Đọc bằng giọng nói" đọc thành tiếng — người dùng nghe máy
+    đọc cả dấu sao.
+    """
+    text = ask(client, "Gói tiết kiệm", intent_code="SAVINGS_PACKAGE")["response_text"]
+
+    assert marker not in text
+
+
+def test_ml01_branch_keeps_saying_which_model_answered(client, fake_ml01, llm_online):
+    """LLM diễn giải rồi thì `model_used` vẫn phải nói ra nhánh nào đã chạy.
+
+    Hai mẩu thông tin khác nhau: engine trả lời "chip vào đúng nhánh chưa",
+    narrator trả lời "câu chữ này ai viết". Thay engine bằng narrator là mất
+    đúng vế mà `intent_code` và `model_used` được thêm vào để kiểm chứng.
+    """
+    fake_ml01()
+
+    body = ask(client, "Chẩn đoán sức khỏe tài chính",
+               intent_code="FINANCIAL_HEALTH_DIAGNOSIS", ml_features=ML_FEATURES)
+
+    assert body["model_used"].startswith("HFML-ML01/")
+    assert "+LLM/" in body["model_used"]
