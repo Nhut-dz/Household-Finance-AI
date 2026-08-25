@@ -544,18 +544,23 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     asset_label_list = []
     for a in assets:
-        if a in ["house", "land", "real_estate"]:
+        a_lower = str(a).lower()
+        if a_lower == "house":
+            asset_label_list.append("Nhà ở")
+        elif a_lower == "land":
+            asset_label_list.append("Đất đai")
+        elif a_lower in ["real_estate", "bất động sản"]:
             asset_label_list.append("Bất động sản")
-        elif a in ["car", "vehicle"]:
+        elif a_lower in ["car", "vehicle", "xe"]:
             asset_label_list.append("Phương tiện (Xe)")
-        elif a == "cash":
-            asset_label_list.append("Tiền mặt/Tiền gửi")
-        elif a == "gold":
-            asset_label_list.append("Vàng")
-        elif a == "insurance":
+        elif a_lower in ["cash", "savings"]:
+            asset_label_list.append("Tiền gửi / Tiền mặt")
+        elif a_lower == "gold":
+            asset_label_list.append("Vàng & Kim loại quý")
+        elif a_lower == "insurance":
             asset_label_list.append("Bảo hiểm")
-        elif a == "investment":
-            asset_label_list.append("Đầu tư")
+        elif a_lower in ["investment", "stock"]:
+            asset_label_list.append("Đầu tư / Cổ phiếu")
         else:
             asset_label_list.append(str(a).upper())
 
@@ -662,38 +667,63 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     elif intent is IntentCode.SAVINGS_PACKAGE:
         buf_min = expense * min_emerg_target
-        months_min = (buf_min / net_cashflow) if net_cashflow > 0 else 0
         elderly_note = " (Đã nâng lên 6 tháng do có phụng dưỡng người già)" if has_dependents else ""
 
-        advice_detail = (
-            f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
-            f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
-            f"- Số dư thặng dư khả dụng hàng tháng: **{presentation.money(net_cashflow)}/tháng** (Đạt tỷ lệ tiết kiệm {presentation.percent(savings_rate)}).\n"
-            f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {presentation.money(buf_min)}){elderly_note}: Cần tích lũy khoảng **{months_min:.1f} tháng**."
-        )
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
+                f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
+                f"- Dòng tiền hằng tháng: {cashflow_word} {presentation.money(abs(net_cashflow))}.\n"
+                f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {presentation.money(buf_min)}){elderly_note}.\n"
+                f"- ⚠️ Dòng tiền hiện chưa dư nên chưa tích lũy thêm được. Ưu tiên số 1 là rà soát và cắt giảm chi tiêu chưa cấp thiết để có thặng dư trước khi đặt mục tiêu quỹ dự phòng."
+            )
+        else:
+            months_min = buf_min / net_cashflow
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
+                f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
+                f"- Số dư thặng dư khả dụng hàng tháng: **{presentation.money(net_cashflow)}/tháng** (Đạt tỷ lệ tiết kiệm {presentation.percent(savings_rate)}).\n"
+                f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {presentation.money(buf_min)}){elderly_note}: Cần tích lũy khoảng **{months_min:.1f} tháng**."
+            )
 
     # Chip "Gói đầu tư" đã rút khỏi nhóm gợi ý (15/08/2026), nhưng nhánh này
     # giữ nguyên: người dùng vẫn gõ "tư vấn đầu tư" được, và bỏ nhánh đi thì
     # câu đó rơi xuống trả lời chung.
     elif intent is IntentCode.INVESTMENT:
-        advice_detail = (
-            f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
-            f"- Với thặng dư dòng tiền **{presentation.money(net_cashflow)}/tháng** (Tỷ lệ tiết kiệm {presentation.percent(savings_rate)}):\n"
-            f"- Trích **30% ({presentation.money(net_cashflow*0.3)})** cho tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
-            f"- Trích **70% ({presentation.money(net_cashflow*0.7)})** đầu tư vào tài sản sinh lời an toàn (Trái phiếu / Chứng chỉ quỹ)."
-        )
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
+                f"- Dòng tiền hằng tháng: {cashflow_word} {presentation.money(abs(net_cashflow))}.\n"
+                f"- ⚠️ Gia đình chưa có dòng tiền thặng dư dương nên chưa phù hợp để tham gia các kênh đầu tư sinh lời. Cần ưu tiên tái cơ cấu thu chi để tạo thặng dư trước khi tính đến chuyện đầu tư."
+            )
+        else:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
+                f"- Với thặng dư dòng tiền **{presentation.money(net_cashflow)}/tháng** (Tỷ lệ tiết kiệm {presentation.percent(savings_rate)}):\n"
+                f"- Trích **30% ({presentation.money(net_cashflow*0.3)})** cho tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
+                f"- Trích **70% ({presentation.money(net_cashflow*0.7)})** đầu tư vào tài sản sinh lời an toàn (Trái phiếu / Chứng chỉ quỹ)."
+            )
 
     elif intent is IntentCode.BUDGET_50_30_20:
         needs_target = income * 0.50
         wants_target = income * 0.30
         savings_target = income * 0.20
 
-        advice_detail = (
-            f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {presentation.money(income)})**:\n"
-            f"- **50% Nhu cầu thiết yếu** (Tối đa {presentation.money(needs_target)}): Chi tiêu sinh hoạt hiện tại {presentation.money(expense)}.\n"
-            f"- **30% Cá nhân & Giải trí** (Tối đa {presentation.money(wants_target)}).\n"
-            f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {presentation.money(savings_target)}): Thặng dư hiện tại đạt **{presentation.money(net_cashflow)}** ({presentation.percent(savings_rate)})."
-        )
+        if net_cashflow < 0:
+            advice_detail = (
+                f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {presentation.money(income)})**:\n"
+                f"- **50% Nhu cầu thiết yếu** (Tối đa {presentation.money(needs_target)}): Chi tiêu sinh hoạt hiện tại {presentation.money(expense)} + trả gốc lãi nợ {presentation.money(debt_payment)}/tháng.\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {presentation.money(wants_target)}).\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {presentation.money(savings_target)}).\n"
+                f"- ⚠️ Dòng tiền hiện đang thâm hụt khoảng {presentation.money(abs(net_cashflow))}/tháng do tổng chi tiêu và nghĩa vụ trả nợ vượt quá thu nhập. Cần thắt chặt ngay nhóm chi tiêu thiết yếu và tạm dừng chi tiêu giải trí để đưa ngân sách về trạng thái cân bằng."
+            )
+        else:
+            advice_detail = (
+                f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {presentation.money(income)})**:\n"
+                f"- **50% Nhu cầu thiết yếu** (Tối đa {presentation.money(needs_target)}): Chi tiêu sinh hoạt hiện tại {presentation.money(expense)}.\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {presentation.money(wants_target)}).\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {presentation.money(savings_target)}): Thặng dư hiện tại đạt **{presentation.money(net_cashflow)}** ({presentation.percent(savings_rate)})."
+            )
     else:
         elderly_text = " Ghi nhận gia đình có phụng dưỡng người già ➔ Nâng ngưỡng quỹ dự phòng y tế lên 6 tháng chi tiêu sinh hoạt." if has_dependents else ""
         advice_detail = (
