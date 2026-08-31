@@ -60,6 +60,37 @@ class AdvisorClient
     ];
 
     /**
+     * `tblassets.asset_type` ↔ giá trị enum `AssetType` mà `HouseholdProfile`
+     * của Python chấp nhận cho trường `assets` (khác đích với
+     * `ASSET_TO_FEATURE` ở trên — đó là 6 cột boolean rời cho `/predict`, còn
+     * đây là ĐÚNG MỘT giá trị enum cho từng dòng tài sản gửi trong `/advise`).
+     *
+     * Bắt buộc phải map, không được gửi giá trị thô: `HouseholdProfile` của
+     * Python validate nghiêm ngặt (`extra`/enum không khớp → lỗi), và lỗi đó
+     * làm hỏng VALIDATION CỦA CẢ HỒ SƠ chứ không riêng gì trường `assets` —
+     * hộ có một tài sản kiểu `house` (giá trị hợp lệ của `AssetTypeEnum`) gửi
+     * thẳng xuống thì mất luôn cả ML01 lẫn ML02, và người dùng nhận về "Chưa
+     * đủ dữ liệu để đánh giá" dù đã điền đủ mọi trường (phát hiện 24/08/2026).
+     *
+     * `other` cố ý không map, cùng lý do với `ASSET_TO_FEATURE`: không nói
+     * được là loại tài sản gì, đoán bừa sang một enum khác là thông tin sai.
+     * Giá trị không map được bị LOẠI ở `householdPayload()`, không gửi xuống.
+     */
+    private const ASSET_TYPE_TO_PYTHON = [
+        // Bộ của AssetTypeEnum
+        'house' => 'real_estate',
+        'land' => 'real_estate',
+        'car' => 'vehicle',
+        // Bộ mà HouseholdProfile.assets chấp nhận — đi thẳng qua
+        'real_estate' => 'real_estate',
+        'vehicle' => 'vehicle',
+        'cash' => 'cash',
+        'insurance' => 'insurance',
+        'gold' => 'gold',
+        'investment' => 'investment',
+    ];
+
+    /**
      * Gửi câu hỏi kèm hồ sơ hộ gia đình và nhận lại câu trả lời của AI.
      *
      * `$intent` chỉ có khi người dùng bấm một chip gợi ý; câu tự gõ để `null`
@@ -324,7 +355,16 @@ class AdvisorClient
             'monthly_debt_payment' => (float) $household->monthly_debt_payment,
             'has_savings' => $household->has_savings,
             'current_savings' => (float) $household->current_savings,
+<<<<<<< HEAD
             'assets' => $household->assets->map(fn ($a) => (string) $a->getRawOriginal('asset_type'))->all(),
+=======
+            'assets' => $household->assets
+                ->map(fn ($a) => self::ASSET_TYPE_TO_PYTHON[(string) $a->getRawOriginal('asset_type')] ?? null)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all(),
+>>>>>>> main
         ];
     }
 

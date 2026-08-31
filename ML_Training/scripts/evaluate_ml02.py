@@ -13,7 +13,9 @@ Nạp 8 artifact của task 7–10 và đo đầy đủ trên **validation**. KH
 
 Bảng in ra giữ nguyên thứ tự nạp, KHÔNG sắp xếp theo chỉ số nào.
 
-Thành phẩm: `src/training/runs/ml02_evaluation/` — 6 bảng + metadata.
+Thành phẩm: `src/training/runs/ml02_evaluation/` — 6 bảng + metadata, kèm ba
+hình `precision_recall_curve.png`, `roc_curve.png`, `threshold_analysis.png`
+(bỏ bằng `--no-plots`).
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ import sys
 import pandas as pd
 
 from hfml.logger import get_logger
+from hfml.ml.evaluation.plots_ml02 import generate_evaluation_plots
 from hfml.ml.ml02_credit_risk.evaluate import (
     ALERT_RATES,
     METRIC_ORDER,
@@ -44,6 +47,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-save", action="store_true",
                         help="chỉ in báo cáo, không ghi file")
+    parser.add_argument("--no-plots", action="store_true",
+                        help="ghi CSV nhưng không vẽ hình")
     args = parser.parse_args()
 
     data = load_training_data()
@@ -103,6 +108,16 @@ def main() -> int:
     print()
     for name, path in write_evaluation(evaluations).items():
         print(f"  ghi → {path}")
+
+    if args.no_plots:
+        print()
+        print("(--no-plots: không vẽ hình nào)")
+        return 0
+
+    # Vẽ NGAY SAU khi ghi CSV. Hàm vẽ đọc lại chính những file vừa ghi ở trên,
+    # nên hình không bao giờ dựng được từ số của lần chạy trước.
+    for name, path in generate_evaluation_plots().items():
+        print(f"  vẽ  → {path}")
     return 0
 
 

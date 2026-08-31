@@ -10,7 +10,8 @@ Ba cách đo cho 8 model: built-in (impurity), permutation trên PR-AUC, và SHA
 trên validation; dùng chúng để bỏ bớt feature rồi train lại và chấm lại trên
 chính tập đó là RÒ RỈ. Feature set giữ nguyên sau task này.
 
-Thành phẩm: `src/training/runs/ml02_importance/` — 4 bảng + metadata.
+Thành phẩm: `src/training/runs/ml02_importance/` — 4 bảng + metadata, kèm hình
+`feature_importance.png` (bỏ bằng `--no-plots`).
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import sys
 import pandas as pd
 
 from hfml.logger import get_logger
+from hfml.ml.evaluation.plots_ml02 import generate_importance_plots
 from hfml.ml.ml02_credit_risk.importance import (
     N_REPEATS,
     PERMUTATION_SCORING,
@@ -42,6 +44,8 @@ def main() -> int:
                         help="giới hạn model, dạng algo:feature_set")
     parser.add_argument("--no-save", action="store_true",
                         help="chỉ in báo cáo, không ghi file")
+    parser.add_argument("--no-plots", action="store_true",
+                        help="ghi CSV nhưng không vẽ hình")
     args = parser.parse_args()
 
     only = None
@@ -113,6 +117,16 @@ def main() -> int:
     print()
     for name, path in write_importance(results).items():
         print(f"  ghi → {path}")
+
+    if args.no_plots:
+        print()
+        print("(--no-plots: không vẽ hình nào)")
+        return 0
+
+    # Vẽ NGAY SAU khi ghi CSV. Hàm vẽ đọc lại chính những file vừa ghi ở trên,
+    # nên hình không bao giờ dựng được từ số của lần chạy trước.
+    for name, path in generate_importance_plots(top_n=TOP_N).items():
+        print(f"  vẽ  → {path}")
     return 0
 
 

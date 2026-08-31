@@ -34,7 +34,7 @@ return [
      */
     'python_advisor' => [
         'url' => env('PYTHON_ADVISOR_URL'),
-        'timeout' => env('PYTHON_ADVISOR_TIMEOUT', 30),
+        'timeout' => env('PYTHON_ADVISOR_TIMEOUT', 45),
         'token' => env('PYTHON_ADVISOR_TOKEN'),
     ],
 

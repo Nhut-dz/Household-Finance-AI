@@ -375,8 +375,20 @@ def render_dataset_doc(manifest: dict, report: QualityReport | None = None) -> s
         short = f"`{digest[:16]}…`" if digest != "—" else "—"
         lines.append(f"| `{info['file']}` | {_format_size(info['size_bytes'])} | {short} |")
 
-    if manifest["missing_files"]:
-        lines += ["", f"⚠️ Thiếu: {', '.join(manifest['missing_files'])}"]
+    # Tách hai loại vắng mặt. Gọi chung là "Thiếu" thì file cố ý bỏ đi trông
+    # như sự cố, và người đọc tài liệu sẽ đi tải lại 1,13 GB không cần dùng.
+    absent = list(manifest["missing_files"])
+    out_of_scope = [n for n in absent if n in loader.OPTIONAL_FILES]
+    truly_missing = [n for n in absent if n not in loader.OPTIONAL_FILES]
+
+    if out_of_scope:
+        lines += [
+            "",
+            f"Không lưu trên đĩa (ngoài phạm vi F04, **không cần tải**): "
+            f"{', '.join(out_of_scope)}",
+        ]
+    if truly_missing:
+        lines += ["", f"⚠️ THIẾU file bắt buộc: {', '.join(truly_missing)}"]
 
     lines += [
         "",

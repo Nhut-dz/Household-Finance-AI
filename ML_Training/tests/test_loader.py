@@ -25,10 +25,26 @@ pytestmark = pytest.mark.skipif(
 
 # ------------------------------------------------------------- đường dẫn
 
-def test_all_five_files_present():
-    """PLAN.md §4.3 khẳng định đủ 5 file — kiểm lại chứ không tin tài liệu."""
-    missing = [name for name, ok in loader.available_files().items() if not ok]
-    assert not missing, f"thiếu file: {missing}"
+def test_required_files_present():
+    """Ba file BẮT BUỘC phải có mặt — kiểm lại chứ không tin tài liệu.
+
+    Trước 24/08/2026 test này đòi đủ cả 5 file. Hai file ngoài phạm vi
+    (`previous_application`, `installments_payments`) đã được xoá khỏi đĩa để
+    lấy lại 1,13 GB, nên đòi đủ 5 là đòi thứ project cố ý không giữ.
+    """
+    assert loader.missing_required() == []
+
+
+def test_out_of_scope_files_are_not_required():
+    """Vắng file ngoài phạm vi KHÔNG được tính là thiếu.
+
+    Chốt chặn cho đúng lỗi vừa xảy ra: gộp "có trên đĩa" với "đủ để chạy" vào
+    một phép kiểm thì xoá file không dùng cũng làm cả bộ test đỏ.
+    """
+    for name in loader.OPTIONAL_FILES:
+        assert name not in loader.REQUIRED_FILES
+        # Vẫn phải tra được đường dẫn, để lỡ cần thì báo lỗi chỉ đúng chỗ tải.
+        assert loader.resolve(name).name.endswith(".csv")
 
 
 def test_unknown_file_name_rejected():

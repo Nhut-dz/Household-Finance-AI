@@ -16,6 +16,23 @@ thì không có, và chỉ khi đó mới đoán bằng từ khoá.
 
 Hai intent ML **không** đoán được bằng từ khoá, và đó là ràng buộc có chủ ý
 chứ không phải giới hạn kỹ thuật — xem `hfml.api.intents`.
+
+Mọi nhánh đều kết thúc ở tầng LLM (24/08/2026)
+-----------------------------------------------
+Trước đây `/advise` ghép `response_text` bằng f-string từ kết quả RuleEngine
+rồi trả thẳng về. Tầng diễn giải có đủ ở `hfml.llm`, nhưng chỉ `/api/v1/chat`
+và `/inference/chat` đi qua nó — mà backend Laravel gọi `/advise`. Kết quả:
+người dùng đọc được nguyên `RB01`, `CRITICAL`, `DEFICIT`, `REJECTED` cùng với
+Markdown không render.
+
+Giờ mọi nhánh đi qua `_narrate`: Rule/ML chạy xong → dựng context → LLM diễn
+giải → quét lần cuối bằng `hfml.llm.presentation`. Câu dựng sẵn của từng nhánh
+vẫn còn nguyên và trở thành SÀN chất lượng khi lượt gọi LLM hỏng, chứ không
+còn là đường đi chính.
+
+Ngoại lệ là các cửa chặn "thiếu dữ liệu": chúng nói về việc người dùng cần
+làm chứ không diễn giải kết quả nào, nên trả lời thẳng, không tốn một lượt
+gọi ra mạng ngoài.
 """
 import re
 from typing import Any, List, Optional
@@ -36,6 +53,7 @@ from hfml.inference import engine as inference_engine
 from hfml.inference.lifecycle import MANAGER, ModelUnavailable
 from hfml.inference.payloads import normalize_payload
 from hfml.inference.settings import ML01, ML02, SETTINGS
+from hfml.llm import presentation
 from hfml.llm.narrator import explain_ml01, explain_ml02
 from hfml.logger import get_logger
 from hfml.ml.ml01_recommendation.labeler import LABELS_VI, RAW_FEATURES, RecommendationGroup
@@ -221,6 +239,89 @@ def predict(req: Ml01PredictRequest) -> Ml01PredictResponse:
     )
 
 
+#: Nguồn câu trả lời được coi là "LLM đã diễn giải xong".
+#:
+#: `out_of_scope` nằm trong danh sách dù không hề gọi LLM: đó là câu từ chối
+#: cố định, đã là tiếng Việt hoàn chỉnh, và thay nó bằng bản dựng sẵn của rule
+#: thì hoá ra lại đi trả lời một câu hỏi vừa từ chối.
+_NARRATED_SOURCES: frozenset[str] = frozenset({"llm", "llm_retry", "out_of_scope"})
+
+
+def _narrate(
+    req: "AdviseRequest",
+    intent: IntentCode,
+    fallback_text: str,
+    extra_profile: dict[str, Any] | None = None,
+) -> tuple[str, str]:
+    """Rule/ML → dựng context → LLM diễn giải. Trả `(câu trả lời, narrator)`.
+
+    Đây là bước từng THIẾU HẲN, và đó là gốc của việc người dùng đọc phải
+    `RB01`, `CRITICAL`, `DEFICIT`
+    ------------------------------------------------------------------------
+    `/advise` trước đây ghép thẳng `response_text` bằng f-string từ kết quả
+    RuleEngine rồi trả về. Không có lời gọi LLM nào trên đường đó — tầng diễn
+    giải tồn tại đầy đủ ở `hfml.llm`, nhưng chỉ `/api/v1/chat` và
+    `/inference/chat` đi qua nó, mà cả hai thì không ai gọi tới. Nhìn từ ngoài
+    hệ thống trông như "LLM bị bypass"; thực ra nó chưa từng được nối vào.
+
+    Vì sao vẫn giữ `fallback_text`
+    --------------------------------
+    Lượt gọi LLM đi ra mạng ngoài: nó hết quota, nó chậm, nó trả JSON hỏng, và
+    câu trả lời của nó có thể bị `validator` đánh trượt vì bịa số. Ở mọi ca đó
+    người dùng vẫn phải nhận được một câu trả lời đúng số liệu — nên bản dựng
+    sẵn không phải phương án chữa cháy mà là sàn của chất lượng.
+
+    Điều KHÔNG được phép xảy ra là bản dựng sẵn nói bằng từ vựng nội bộ. Nó đi
+    qua `to_plain_text` như mọi đường khác, nên hạ cấp là mất phần văn phong,
+    không phải mất phần dễ đọc.
+
+    Vì sao gọi `chat()` chứ không tự dựng context ở đây
+    ----------------------------------------------------
+    `chat()` đã là trọn sơ đồ: chuẩn hoá → rule → ML01 → ML02 → gom kết quả →
+    intent → context → LLM → kiểm đầu ra. Dựng lại một nửa trong số đó ở tầng
+    HTTP là tạo nguồn sự thật thứ hai cho cùng một câu trả lời, đúng thứ mà
+    `inference/stages.py` viết hẳn một đoạn docstring để cấm.
+
+    Trả về `narrator` chứ không phải cả `model_used`
+    -------------------------------------------------
+    Người gọi ghép nó với tên engine của mình: `HFML-ML01/<slug>+LLM/<model>`.
+    Hai mẩu thông tin khác nhau và cần cả hai — engine trả lời "chip đã vào
+    đúng nhánh chưa", narrator trả lời "câu chữ này ai viết ra". Gộp thành một
+    chuỗi duy nhất do hàm này quyết thì mất vế đầu, và đó đúng là vế mà
+    `intent_code` được thêm vào để kiểm chứng.
+    """
+    payload = dict(req.household or {})
+    if extra_profile:
+        payload.update(extra_profile)
+
+    try:
+        result = inference_engine.chat(
+            normalize_payload(payload, req.loan_application),
+            question=req.question,
+            intent_code=intent.value,
+        )
+    except Exception as exc:  # noqa: BLE001 — biên ngoài, không để hỏng cả câu
+        log.warning("Diễn giải bằng LLM lỗi (%s: %s) — dùng bản dựng sẵn.",
+                    type(exc).__name__, exc)
+        return presentation.to_plain_text(fallback_text), "Template"
+
+    answer = result.to_dict().get("answer") or {}
+    source = str(answer.get("source", ""))
+    text = str(result.text or "")
+
+    if source in _NARRATED_SOURCES and text.strip():
+        log.info("advise: LLM đã diễn giải (nguồn=%s, model=%s)",
+                 source, answer.get("model") or "-")
+        # `result.text` đã qua `Answer.as_text()`, nơi có sẵn bước quét. Quét
+        # lại ở đây là rẻ và biến "đã sạch" từ một giả định thành một bảo đảm.
+        return presentation.to_plain_text(text), (
+            f"LLM/{answer.get('model') or 'unknown'}")
+
+    log.info("advise: LLM không diễn giải được (nguồn=%s) — dùng bản dựng sẵn.",
+             source or "-")
+    return presentation.to_plain_text(fallback_text), "Template"
+
+
 def _ml01_from_features(features: dict[str, Any]) -> dict[str, Any]:
     """Chạy ML01 trên bộ feature đã chuẩn hoá và trả về kết quả dạng dict.
 
@@ -253,17 +354,19 @@ def _advise_financial_health(req: AdviseRequest, rule_summary: str) -> AdviseRes
     Thứ tự này là ràng buộc kiến trúc, không phải chi tiết cài đặt: **model
     quyết nhãn trước, tầng diễn đạt chỉ nhận nhãn đã quyết**. `explain_ml01()`
     nhận `label` như tham số bắt buộc và không có nhánh nào đổi nó.
+
+    Hai cửa chặn phía trên vẫn trả lời thẳng, không qua LLM: chúng nói về việc
+    người dùng cần làm (bổ sung năm sinh) chứ không diễn giải kết quả nào, nên
+    một lượt gọi ra mạng ngoài ở đó chỉ tốn thời gian chờ.
     """
     if not req.ml_features:
         return AdviseResponse(
-            response_text=(
-                "🧭 **Chẩn đoán sức khỏe tài chính**\n\n"
-                "Hồ sơ của bạn còn thiếu dữ liệu bắt buộc để chạy mô hình — "
-                "thường là **năm sinh**. Vui lòng bổ sung ở màn *Nhập thông tin* "
-                "rồi thử lại.\n\n"
-                "Hệ thống cố ý không điền tuổi mặc định: điền bừa thì mô hình vẫn "
-                "trả về một nhóm trông hợp lý, và không ai biết nó dựa trên dữ "
-                "liệu bịa."
+            response_text=presentation.to_plain_text(
+                "🧭 Chẩn đoán sức khỏe tài chính\n\n"
+                "Hồ sơ của bạn còn thiếu năm sinh nên chưa chạy được phần chẩn "
+                "đoán. Vui lòng bổ sung ở màn Nhập thông tin rồi thử lại.\n\n"
+                "Hệ thống cố ý không điền tuổi mặc định: điền bừa thì kết quả "
+                "vẫn trông hợp lý, và không ai biết nó dựa trên dữ liệu bịa."
             ),
             model_used="HFML-ML01-Advisor",
             intent_code=IntentCode.FINANCIAL_HEALTH_DIAGNOSIS.value,
@@ -274,10 +377,10 @@ def _advise_financial_health(req: AdviseRequest, rule_summary: str) -> AdviseRes
     except FileNotFoundError as exc:
         log.warning("Chưa có artifact ML01 (%s): %s", SETTINGS.ml01_slug, exc)
         return AdviseResponse(
-            response_text=(
-                "🧭 **Chẩn đoán sức khỏe tài chính**\n\n"
-                "Mô hình phân loại chưa sẵn sàng trên máy chủ nên chưa chẩn đoán "
-                "được. Dưới đây là đánh giá theo bộ quy tắc tài chính:\n\n"
+            response_text=presentation.to_plain_text(
+                "🧭 Chẩn đoán sức khỏe tài chính\n\n"
+                "Phần chẩn đoán bằng mô hình chưa sẵn sàng nên chưa có kết quả. "
+                "Dưới đây là đánh giá theo bộ quy tắc tài chính:\n\n"
                 f"{rule_summary}"
             ),
             model_used="HFML-RuleEngine-Fallback",
@@ -287,17 +390,24 @@ def _advise_financial_health(req: AdviseRequest, rule_summary: str) -> AdviseRes
         log.exception("ML01 lỗi khi chẩn đoán qua chat")
         raise HTTPException(status_code=500, detail=f"Model lỗi khi dự đoán: {exc}") from exc
 
+    # Bản dựng sẵn — dùng khi LLM không diễn giải được. Nhãn và xác suất ở đây
+    # do model quyết, `explain_ml01` chỉ diễn đạt chúng.
+    fallback = explain_ml01(
+        label=result["label"],
+        label_vi=result["label_vi"],
+        confidence=result["confidence"],
+        probabilities=result["probabilities"],
+        low_confidence=result["low_confidence"],
+        rule_summary=rule_summary,
+        model_version=SETTINGS.ml01_slug,
+    )
+
+    text, narrator = _narrate(
+        req, IntentCode.FINANCIAL_HEALTH_DIAGNOSIS, fallback)
+
     return AdviseResponse(
-        response_text=explain_ml01(
-            label=result["label"],
-            label_vi=result["label_vi"],
-            confidence=result["confidence"],
-            probabilities=result["probabilities"],
-            low_confidence=result["low_confidence"],
-            rule_summary=rule_summary,
-            model_version=SETTINGS.ml01_slug,
-        ),
-        model_used=f"HFML-ML01/{SETTINGS.ml01_slug}",
+        response_text=text,
+        model_used=f"HFML-ML01/{SETTINGS.ml01_slug}+{narrator}",
         intent_code=IntentCode.FINANCIAL_HEALTH_DIAGNOSIS.value,
         suggested_questions=[
             "Tôi nên bắt đầu từ khoản chi nào?",
@@ -323,19 +433,20 @@ def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
     """
     if not req.loan_application:
         return AdviseResponse(
-            response_text=(
-                "⚖️ **Chẩn đoán rủi ro vay vốn**\n\n"
+            response_text=presentation.to_plain_text(
+                "⚖️ Chẩn đoán rủi ro vay vốn\n\n"
                 "Bạn chưa khai thông tin khoản vay nên chưa đánh giá được. Phần "
-                "này cần các dữ liệu mà màn *Thông tin khoản vay* thu thập: "
-                "số tiền vay, thời hạn, khoản trả hàng tháng, giá trị tài sản và "
+                "này cần các dữ liệu mà màn Thông tin khoản vay thu thập: số "
+                "tiền vay, thời hạn, khoản trả hàng tháng, giá trị tài sản và "
                 "lịch sử tín dụng.\n\n"
-                "Vui lòng điền màn **Thông tin khoản vay** rồi quay lại đây."
+                "Vui lòng điền màn Thông tin khoản vay rồi quay lại đây."
             ),
             model_used="HFML-ML02-Advisor",
             intent_code=IntentCode.LOAN_RISK_DIAGNOSIS.value,
             requires_loan_application=True,
         )
 
+<<<<<<< HEAD
     hh_dict = dict(req.household)
     if "assets" in hh_dict and isinstance(hh_dict["assets"], list):
         norm_assets = []
@@ -385,15 +496,25 @@ def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
             loan_dict["loan_purpose"] = "buy_car"
 
     result = inference_engine.analyze(normalize_payload(hh_dict, loan_dict))
+=======
+    # Chạy Rule + ML02 qua `analyze()` để BIẾT có kết quả hay không trước đã.
+    #
+    # Hai cửa chặn bên dưới quyết định câu trả lời sẽ nói về chuyện gì, và
+    # chúng cần kết quả ML02 để quyết. `analyze()` chạy ~150ms, không tốn
+    # quota, không phụ thuộc mạng ngoài — đúng thứ cần cho một phép rẽ nhánh.
+    # Bước diễn giải bằng LLM chỉ chạy sau khi đã biết chắc có gì để diễn giải.
+    result = inference_engine.analyze(
+        normalize_payload(req.household, req.loan_application))
+>>>>>>> main
     analysis = result.to_dict().get("analysis") or {}
     ml02 = analysis.get("ml02") or {}
 
     if not ml02.get("available"):
         reason = ml02.get("error") or "Chưa đủ dữ liệu để đánh giá."
         return AdviseResponse(
-            response_text=(
-                "⚖️ **Chẩn đoán rủi ro vay vốn**\n\n"
-                f"{reason}\n\nVui lòng kiểm tra lại màn **Thông tin khoản vay**."),
+            response_text=presentation.to_plain_text(
+                "⚖️ Chẩn đoán rủi ro vay vốn\n\n"
+                f"{reason}\n\nVui lòng kiểm tra lại màn Thông tin khoản vay."),
             model_used="HFML-ML02-Advisor",
             intent_code=IntentCode.LOAN_RISK_DIAGNOSIS.value,
             requires_loan_application=(
@@ -402,21 +523,29 @@ def _advise_loan_risk(req: AdviseRequest) -> AdviseResponse:
 
     threshold = MANAGER.threshold_for(ML02)
     rules = analysis.get("rules") or {}
+    # Gọi rule bằng TÊN NGHIỆP VỤ, không bằng mã. Bản trước dựng
+    # `f"- {code}: …"` và đó là một trong ba đường làm `RB01`, `RB02`, `RB05`
+    # hiện lên màn hình người dùng.
     loan_summary = "\n".join(
-        f"- {code}: {rules[code]['details']['summary_vi']}"
+        f"• {presentation.rule_name(code).capitalize()}: "
+        f"{rules[code]['details']['summary_vi']}"
         for code in ("RB01", "RB02", "RB05")
         if rules.get(code, {}).get("details", {}).get("summary_vi"))
 
+    fallback = explain_ml02(
+        label=str(ml02["label"]),
+        label_vi=str(ml02["label_vi"]),
+        probability=float(ml02["probability"]),
+        threshold=float(threshold if threshold is not None else 0.0),
+        loan_summary=loan_summary,
+        model_version=str(ml02.get("model_version") or SETTINGS.ml02_slug),
+    )
+
+    text, narrator = _narrate(req, IntentCode.LOAN_RISK_DIAGNOSIS, fallback)
+
     return AdviseResponse(
-        response_text=explain_ml02(
-            label=str(ml02["label"]),
-            label_vi=str(ml02["label_vi"]),
-            probability=float(ml02["probability"]),
-            threshold=float(threshold if threshold is not None else 0.0),
-            loan_summary=loan_summary,
-            model_version=str(ml02.get("model_version") or SETTINGS.ml02_slug),
-        ),
-        model_used=f"HFML-ML02/{SETTINGS.ml02_slug}",
+        response_text=text,
+        model_used=f"HFML-ML02/{SETTINGS.ml02_slug}+{narrator}",
         intent_code=IntentCode.LOAN_RISK_DIAGNOSIS.value,
         suggested_questions=[
             "Tôi nên vay tối đa bao nhiêu thì an toàn?",
@@ -464,8 +593,8 @@ def advise(req: AdviseRequest) -> AdviseResponse:
     question = req.question.strip()
 
     # Mô tả nợ, tiết kiệm & tài sản thế chấp (Sử dụng nhãn tiếng Việt chuẩn từ schema.py)
-    debt_desc = f"{total_debt:,.0f} VNĐ (Trả gốc lãi {debt_payment:,.0f} VNĐ/tháng)" if total_debt > 0 or debt_payment > 0 else "Không có nợ"
-    savings_desc = f"{savings:,.0f} VNĐ" if savings > 0 else "0 VNĐ (Chưa có tích lũy)"
+    debt_desc = f"{presentation.money(total_debt)} (Trả gốc lãi {presentation.money(debt_payment)}/tháng)" if total_debt > 0 or debt_payment > 0 else "Không có nợ"
+    savings_desc = f"{presentation.money(savings)}" if savings > 0 else "0đ (chưa có tích lũy)"
 
     asset_label_list = []
     for a in assets:
@@ -537,12 +666,49 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
     elderly_str = " (Có phụng dưỡng người già ➔ Nâng đệm dự phòng lên 6 tháng)" if has_dependents else ""
 
+<<<<<<< HEAD
     rule_summary = (
         f"📌 **Phân tích chỉ số tài chính tổng quan ({st_overall})**:\n"
         f"- **Dòng tiền hàng tháng**: {cashflow_line}.\n"
         f"- **Nợ & Tích lũy**: Nợ {debt_desc} | Tiết kiệm {savings_desc} | Tài sản: {asset_desc}.\n"
         f"- **Đệm dự phòng & Trả nợ**: {st_rb02} (DTI trả nợ: {dti:.1%}, Đệm khẩn cấp: {emerg_months:.1f}/{min_emerg_target:.0f} tháng{elderly_str}, Tỷ lệ tiết kiệm: {savings_rate:.1%}).\n"
         f"- **Năng lực vay mới**: Trả nợ đề xuất thêm tối đa {max_add_payment:,.0f} VNĐ/tháng ({st_rb05})."
+=======
+    # Tóm tắt tầng rule, dùng lại cho cả câu trả lời thường lẫn phần diễn giải
+    # của ML01 — hai nơi nói khác nhau về cùng một hồ sơ là chuyện phải tránh.
+    #
+    # Mã rule và mã trạng thái KHÔNG xuất hiện ở đây nữa. Chuỗi này là nguồn
+    # trực tiếp của những dòng `(RB01) … (DEFICIT)` mà người dùng đọc phải: nó
+    # đi thẳng vào `response_text` và trước đây không có bước nào đứng giữa.
+    #
+    # Nhân đây sửa luôn một chỗ nói sai: bản cũ viết cứng "Dư thừa khoảng
+    # {net_cashflow}" cho mọi hồ sơ, nên hộ đang âm dòng tiền vẫn được báo là
+    # "dư thừa khoảng -2.000.000 VNĐ (DEFICIT)". Câu đó tự mâu thuẫn, và phần
+    # duy nhất nói đúng lại chính là mã đang phải bỏ đi.
+    # Nói bằng chữ, không kèm mã trạng thái trong ngoặc.
+    #
+    # "Dư khoảng 3.000.000đ" đã nói đúng thứ mà `(POSITIVE)` nói, nên thêm
+    # ngoặc vào chỉ là lặp lại chính mình bằng một thứ tiếng khó hơn.
+    cashflow_word = ("Dư khoảng" if net_cashflow > 0
+                     else "Thiếu khoảng" if net_cashflow < 0
+                     else "Vừa đủ, không dư không thiếu —")
+    emergency = f"{emerg_months:.1f}".replace(".", ",")
+    rule_summary = (
+        f"📌 Đánh giá tổng quan: "
+        f"{presentation.label_status('OVERALL', overall_status)}\n"
+        f"• Dòng tiền hằng tháng: {cashflow_word} "
+        f"{presentation.money(abs(net_cashflow))}.\n"
+        f"• Nợ, tiết kiệm & tài sản: Nợ {debt_desc} | Tiết kiệm {savings_desc} "
+        f"| Tài sản: {asset_desc}.\n"
+        f"• Sức khỏe tài chính: "
+        f"{presentation.label_status('RB02', rb02.get('status'))} "
+        f"(tỉ lệ trả nợ trên thu nhập {presentation.percent(dti)}, quỹ dự phòng "
+        f"{emergency}/{min_emerg_target:.0f} tháng, tỉ lệ tiết kiệm "
+        f"{presentation.percent(savings_rate)}).\n"
+        f"• Khả năng vay: có thể gánh thêm tối đa "
+        f"{presentation.money(max_add_payment)}/tháng "
+        f"({presentation.label_status('RB05', rb05.get('status'))})."
+>>>>>>> main
     )
 
     if intent is IntentCode.FINANCIAL_HEALTH_DIAGNOSIS:
@@ -567,11 +733,16 @@ def advise(req: AdviseRequest) -> AdviseResponse:
         max_pmt = loan_val.get("max_allowed_monthly_payment", 0.0)
         max_ltv_loan = loan_val.get("max_loan_by_ltv", 0.0)
 
+<<<<<<< HEAD
         debt_note = f" (đã trừ nghĩa vụ trả nợ hiện tại {debt_payment:,.0f} VNĐ/tháng)" if debt_payment > 0 else ""
+=======
+        debt_note = f" (Đã trừ đi khoản nợ đang trả {presentation.money(debt_payment)}/tháng)" if debt_payment > 0 else ""
+>>>>>>> main
 
         if asset_price > 0:
             down_payment = max(0.0, asset_price - max_loan)
             advice_detail = (
+<<<<<<< HEAD
                 f"🏡 **Tư vấn hạn mức vay mua tài sản ({asset_price:,.0f} VNĐ, kỳ hạn {term_years_str})**:\n\n"
                 f"- Hạn mức vay an toàn tối đa (DTI ≤ 40%): **{max_loan:,.0f} VNĐ**{debt_note}.\n"
                 f"- Trả gốc + lãi hàng tháng tối đa có thể gánh thêm: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
@@ -585,10 +756,27 @@ def advise(req: AdviseRequest) -> AdviseResponse:
                 f"- Hạn mức vay bổ sung an toàn tối đa: **{max_loan:,.0f} VNĐ**{debt_note}.\n"
                 f"- Khả năng trích thặng dư trả nợ mới hàng tháng: **~{max_pmt:,.0f} VNĐ/tháng**.\n"
                 f"- Đánh giá tài sản thế chấp hiện có ({asset_desc}): **Mức {collateral_quality}**."
+=======
+                f"🏡 **Tư vấn vay mua tài sản ({presentation.money(asset_price)}, kỳ hạn {term_years_str})**:\n"
+                f"- Hạn mức vay an toàn tối đa dựa trên thu nhập (DTI ≤ 40%, {term_years_str}): **{presentation.money(max_loan)}**{debt_note}.\n"
+                f"- Số tiền trả gốc lãi tối đa có thể gánh thêm: **~{presentation.money(max_pmt)}/tháng**.\n"
+                f"- Hạn mức vay tối đa theo tài sản thế chấp (LTV 70%): **{presentation.money(max_ltv_loan)}**.\n"
+                f"- Năng lực thế chấp tài sản sở hữu hiện tại ({asset_desc}): **{presentation.label_status('COLLATERAL', collateral_quality)}**.\n"
+                f"- 💡 **Khuyên dùng**: Bạn có thể vay an toàn tối đa **{presentation.money(max_loan)}** trong thời hạn **{term_years_str}**. "
+                f"Do đó bạn cần chuẩn bị sẵn vốn tự có (tiền trả trước) tối thiểu **{presentation.money(down_payment)}** ({presentation.percent(down_payment/asset_price)}) trước khi quyết định mua."
+            )
+        else:
+            advice_detail = (
+                f"🏦 **Tư vấn hạn mức vay an toàn (kỳ hạn {term_years_str})**:\n"
+                f"- Hạn mức vay an toàn tối đa ({term_years_str}): **{presentation.money(max_loan)}**{debt_note}.\n"
+                f"- Khả năng trả gốc lãi vay mới tối đa: **{presentation.money(max_pmt)}/tháng**.\n"
+                f"- Năng lực thế chấp từ tài sản sở hữu ({asset_desc}): **{presentation.label_status('COLLATERAL', collateral_quality)}**."
+>>>>>>> main
             )
 
     elif intent is IntentCode.SAVINGS_PACKAGE:
         buf_min = expense * min_emerg_target
+<<<<<<< HEAD
         elderly_note = " (Đã nâng mốc quỹ dự phòng từ 3 lên 6 tháng chi tiêu do gia đình có người già phụng dưỡng)" if has_dependents else ""
 
         if net_cashflow <= 0:
@@ -599,20 +787,39 @@ def advise(req: AdviseRequest) -> AdviseResponse:
                 f"- Mục tiêu Quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = **{buf_min:,.0f} VNĐ**){elderly_note}.\n\n"
                 f"⚠️ **Khuyến nghị khẩn cấp**: Do dòng tiền hiện tại đang bị thâm hụt ({net_cashflow:,.0f} VNĐ/tháng), gia đình chưa có thặng dư để tích lũy. "
                 f"Ưu tiên số 1 lúc này là rà soát và thắt chặt các khoản chi tiêu chưa cấp thiết để cân bằng dòng tiền."
+=======
+        elderly_note = " (Đã nâng lên 6 tháng do có phụng dưỡng người già)" if has_dependents else ""
+
+        if net_cashflow <= 0:
+            advice_detail = (
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
+                f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
+                f"- Dòng tiền hằng tháng: {cashflow_word} {presentation.money(abs(net_cashflow))}.\n"
+                f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {presentation.money(buf_min)}){elderly_note}.\n"
+                f"- ⚠️ Dòng tiền hiện chưa dư nên chưa tích lũy thêm được. Ưu tiên số 1 là rà soát và cắt giảm chi tiêu chưa cấp thiết để có thặng dư trước khi đặt mục tiêu quỹ dự phòng."
+>>>>>>> main
             )
         else:
             months_min = buf_min / net_cashflow
             advice_detail = (
+<<<<<<< HEAD
                 f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng khẩn cấp**:\n\n"
                 f"- Tiết kiệm tích lũy hiện có: **{savings_desc}**.\n"
                 f"- {cashflow_str} (Đạt tỷ lệ tiết kiệm {savings_rate:.1%}).\n"
                 f"- Mục tiêu Quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = **{buf_min:,.0f} VNĐ**){elderly_note}.\n\n"
                 f"💡 **Lộ trình thực hiện**: Với số dư thặng dư hiện tại, gia đình chỉ cần trích tích lũy liên tục trong khoảng **{months_min:.1f} tháng** là sẽ hoàn thành 100% mục tiêu quỹ dự phòng an toàn."
+=======
+                f"🐖 **Gói tư vấn tiết kiệm & Quỹ dự phòng**:\n"
+                f"- Số tiền tiết kiệm hiện tại: **{savings_desc}**.\n"
+                f"- Số dư thặng dư khả dụng hàng tháng: **{presentation.money(net_cashflow)}/tháng** (Đạt tỷ lệ tiết kiệm {presentation.percent(savings_rate)}).\n"
+                f"- Mục tiêu quỹ dự phòng an toàn khuyến nghị ({min_emerg_target:.0f} tháng chi tiêu = {presentation.money(buf_min)}){elderly_note}: Cần tích lũy khoảng **{months_min:.1f} tháng**."
+>>>>>>> main
             )
 
     elif intent is IntentCode.INVESTMENT:
         if net_cashflow <= 0:
             advice_detail = (
+<<<<<<< HEAD
                 f"📈 **Gói tư vấn phân bổ đầu tư**:\n\n"
                 f"- Trạng thái dòng tiền: {cashflow_str}.\n\n"
                 f"⚠️ **Khuyến nghị**: Hiện tại gia đình chưa có dòng tiền thặng dư dương nên chưa phù hợp để tham gia các kênh đầu tư sinh lời. "
@@ -624,6 +831,18 @@ def advise(req: AdviseRequest) -> AdviseResponse:
                 f"- Với {cashflow_str} (Tỷ lệ tiết kiệm {savings_rate:.1%}), hệ thống đề xuất mô hình phân bổ an toàn:\n"
                 f"  - **30% ({net_cashflow*0.3:,.0f} VNĐ/tháng)**: Dành cho Tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
                 f"  - **70% ({net_cashflow*0.7:,.0f} VNĐ/tháng)**: Đầu tư tài sản sinh lời an toàn (Trái phiếu uy tín / Chứng chỉ quỹ)."
+=======
+                f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
+                f"- Dòng tiền hằng tháng: {cashflow_word} {presentation.money(abs(net_cashflow))}.\n"
+                f"- ⚠️ Gia đình chưa có dòng tiền thặng dư dương nên chưa phù hợp để tham gia các kênh đầu tư sinh lời. Cần ưu tiên tái cơ cấu thu chi để tạo thặng dư trước khi tính đến chuyện đầu tư."
+            )
+        else:
+            advice_detail = (
+                f"📈 **Gói tư vấn phân bổ đầu tư**:\n"
+                f"- Với thặng dư dòng tiền **{presentation.money(net_cashflow)}/tháng** (Tỷ lệ tiết kiệm {presentation.percent(savings_rate)}):\n"
+                f"- Trích **30% ({presentation.money(net_cashflow*0.3)})** cho tiền gửi tiết kiệm thanh khoản cao dự phòng.\n"
+                f"- Trích **70% ({presentation.money(net_cashflow*0.7)})** đầu tư vào tài sản sinh lời an toàn (Trái phiếu / Chứng chỉ quỹ)."
+>>>>>>> main
             )
 
     elif intent is IntentCode.BUDGET_50_30_20:
@@ -633,6 +852,7 @@ def advise(req: AdviseRequest) -> AdviseResponse:
 
         if net_cashflow < 0:
             advice_detail = (
+<<<<<<< HEAD
                 f"📊 **Phân tích ngân sách theo Quy tắc 50/30/20 (Thu nhập {income:,.0f} VNĐ/tháng)**:\n\n"
                 f"- **50% Nhu cầu thiết yếu** (Hạn mức tối đa {needs_target:,.0f} VNĐ): Chi tiêu sinh hoạt hiện tại **{expense:,.0f} VNĐ**"
                 f" + Trả gốc lãi nợ **{debt_payment:,.0f} VNĐ/tháng**.\n"
@@ -668,6 +888,54 @@ def advise(req: AdviseRequest) -> AdviseResponse:
             f"{advice_detail}"
         )
 
+=======
+                f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {presentation.money(income)})**:\n"
+                f"- **50% Nhu cầu thiết yếu** (Tối đa {presentation.money(needs_target)}): Chi tiêu sinh hoạt hiện tại {presentation.money(expense)} + trả gốc lãi nợ {presentation.money(debt_payment)}/tháng.\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {presentation.money(wants_target)}).\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {presentation.money(savings_target)}).\n"
+                f"- ⚠️ Dòng tiền hiện đang thâm hụt khoảng {presentation.money(abs(net_cashflow))}/tháng do tổng chi tiêu và nghĩa vụ trả nợ vượt quá thu nhập. Cần thắt chặt ngay nhóm chi tiêu thiết yếu và tạm dừng chi tiêu giải trí để đưa ngân sách về trạng thái cân bằng."
+            )
+        else:
+            advice_detail = (
+                f"📊 **Phân tích theo Quy tắc 50/30/20 (Thu nhập {presentation.money(income)})**:\n"
+                f"- **50% Nhu cầu thiết yếu** (Tối đa {presentation.money(needs_target)}): Chi tiêu sinh hoạt hiện tại {presentation.money(expense)}.\n"
+                f"- **30% Cá nhân & Giải trí** (Tối đa {presentation.money(wants_target)}).\n"
+                f"- **20% Tiết kiệm & Trả nợ** (Tối thiểu {presentation.money(savings_target)}): Thặng dư hiện tại đạt **{presentation.money(net_cashflow)}** ({presentation.percent(savings_rate)})."
+            )
+    else:
+        elderly_text = " Ghi nhận gia đình có phụng dưỡng người già ➔ Nâng ngưỡng quỹ dự phòng y tế lên 6 tháng chi tiêu sinh hoạt." if has_dependents else ""
+        advice_detail = (
+            f"Dựa trên phân tích dòng tiền và đòn bẩy nợ hiện tại, bạn có số dư thặng dư khả dụng hàng tháng là **{presentation.money(net_cashflow)}** (Đạt tỷ lệ tiết kiệm {presentation.percent(savings_rate)}). "
+            f"Hạn mức trả nợ mới đề xuất thêm tối đa là **{presentation.money(max_add_payment)}/tháng**.{elderly_text}"
+        )
+
+    # Người dùng bấm chip thì "câu hỏi" chỉ là nhãn của chip, nhắc lại nguyên
+    # văn nghe như máy đọc lại chính nút vừa bấm.
+    heading = (f"💡 {INTENT_LABELS[intent]}:" if req.intent_code
+               else f"💡 Trả lời cho câu hỏi: {question}")
+
+    fallback = (
+        f"Chào {rep_name}, hệ thống đã phân tích hồ sơ của bạn.\n\n"
+        f"{rule_summary}\n\n"
+        f"{heading}\n"
+        f"{advice_detail}"
+    )
+
+    # Con số người dùng nêu trong câu hỏi ("nhà 3 tỷ", "vay 5 năm") được gắn
+    # vào hồ sơ trước khi chạy pipeline.
+    #
+    # Nhánh rule bên trên đã tính theo chúng rồi; không truyền xuống thì RB05
+    # trong pipeline lại tính trên `asset_price` đã khai của hồ sơ, và LLM
+    # nhận một bộ số khác hẳn bộ số của bản dựng sẵn. Cùng một câu hỏi, hai
+    # câu trả lời tuỳ theo LLM có chạy được hay không — đúng kiểu sai mà không
+    # ai phát hiện cho tới khi có người so hai lần hỏi giống nhau.
+    extra: dict[str, Any] = {"loan_term_months": term_months}
+    if parsed_price:
+        extra["asset_price"] = parsed_price
+
+    text, narrator = _narrate(req, intent, fallback, extra)
+
+>>>>>>> main
     suggested = [
         "Tôi muốn mua nhà giá 3 tỷ thì vay được bao nhiêu?",
         "Tư vấn gói đầu tư tích lũy an toàn",
@@ -675,8 +943,8 @@ def advise(req: AdviseRequest) -> AdviseResponse:
     ]
 
     return AdviseResponse(
-        response_text=answer,
-        model_used="HFML-RuleEngine-v0.2.0",
+        response_text=text,
+        model_used=f"HFML-RuleEngine-v0.2.0+{narrator}",
         suggested_questions=suggested,
         tokens_used=150,
         intent_code=intent.value,
