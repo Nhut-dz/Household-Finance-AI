@@ -26,13 +26,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'borrower_age',
     'gender',
     'marital_status',
-    'children_count',
+    // Không có 'children_count': số con nằm ở tblhouseholds, một nguồn duy nhất.
     'education_level',
     'occupation',
     'employment_years',
     // B. Thông tin khoản vay
     'loan_amount',
     'loan_term_months',
+    // Tùy chọn — `null` là "chưa biết lãi suất", không phải "vay không lãi".
+    'interest_rate',
+    // SUY RA từ ba cột trên, không phải người dùng nhập. Xem
+    // LoanApplicationService::monthlyPayment().
     'monthly_payment',
     'asset_price',
     'loan_purpose',
@@ -55,13 +59,13 @@ class LoanApplication extends Model
             'borrower_age' => 'integer',
             'gender' => GenderEnum::class,
             'marital_status' => MaritalStatusEnum::class,
-            'children_count' => 'integer',
             'education_level' => EducationLevelEnum::class,
             'occupation' => OccupationEnum::class,
             'employment_years' => 'decimal:1',
 
             'loan_amount' => 'decimal:2',
             'loan_term_months' => 'integer',
+            'interest_rate' => 'decimal:2',
             'monthly_payment' => 'decimal:2',
             'asset_price' => 'decimal:2',
             'loan_purpose' => LoanPurposeEnum::class,

@@ -55,8 +55,27 @@ from hfml.logger import get_logger  # noqa: E402
 
 log = get_logger(__name__)
 
-#: 3 slot categorical đầu tiên — bộ duy nhất qua được `--pairs all`.
-SERIES: Final[tuple[str, ...]] = ("#2a78d6", "#eb6834", "#1baf7a")
+#: 4 slot categorical — một slot cho mỗi thuật toán ML01/ML02, theo thứ tự
+#: task 7 → 10 (decision_tree, bagging, random_forest, xgboost).
+#:
+#: Slot 4 của bảng màu gốc là yellow — KHÔNG dùng được: đặt cạnh orange thì
+#: rớt sàn thị lực thường (ΔE 13,7 < 15) ở chế độ `--pairs all`. Đã chạy
+#: validator trên cả bốn ứng viên còn lại và chốt violet:
+#:
+#:     node scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a,#4a3aa7"
+#:          --mode light --surface "#fcfcfb" --pairs all
+#:     → ALL CHECKS PASS (CVD ΔE 9,2 · thị lực thường ΔE 16,3)
+SERIES: Final[tuple[str, ...]] = ("#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7")
+
+#: Thứ tự thuật toán trong legend và màu — theo task 7 → 10, KHÔNG theo thứ tự
+#: chữ cái: pivot của pandas xếp cột theo tên, mà "bagging" đứng trước
+#: "decision_tree" thì màu của từng model đổi theo số model có mặt trong CSV.
+ALGO_ORDER: Final[tuple[str, ...]] = (
+    "decision_tree", "bagging", "random_forest", "xgboost")
+
+#: Thuật toán → màu, CỐ ĐỊNH. Không sinh theo vòng lặp trên dữ liệu đang vẽ:
+#: làm vậy thì bỏ một model khỏi bảng là ba model còn lại đổi màu hết.
+ALGO_COLOR: Final[dict[str, str]] = dict(zip(ALGO_ORDER, SERIES))
 
 SURFACE: Final[str] = "#fcfcfb"
 INK: Final[str] = "#0b0b0b"
@@ -255,9 +274,11 @@ def plot_model_comparison(runs_dir=None, out=None):
 def plot_feature_importance(runs_dir=None, out=None, top_n: int = 10):
     """Feature importance của các model có cung cấp nó (task 13).
 
-    Cột ngang gốc 0, ba model cạnh nhau. Bagging vắng mặt vì
-    `BaggingClassifier` không phơi ra `feature_importances_` — đó là dữ kiện,
-    không phải thiếu sót của hình.
+    Cột ngang gốc 0, bốn model cạnh nhau. Bagging có mặt dù
+    `BaggingClassifier` không phơi ra `feature_importances_`: importance của
+    nó là trung bình các cây con, tính ở `PipelineClassifier.feature_importance()`.
+    Model nào vắng trong `feature_importance.csv` thì vắng trong hình — hình
+    không tự bịa cột cho model không có số.
 
     Không ghi số lên từng cột: 30 nhãn là nhiễu. Giá trị chính xác nằm ở
     `feature_importance.csv` cùng thư mục — đó là table view của hình này.
@@ -266,7 +287,11 @@ def plot_feature_importance(runs_dir=None, out=None, top_n: int = 10):
     long = pd.read_csv(path)
     pivot = long.pivot_table(index="feature", columns="algo", values="importance")
     pivot = pivot.assign(mean=pivot.mean(axis=1)).nlargest(top_n, "mean")
-    algos = [column for column in pivot.columns if column != "mean"]
+    present = [column for column in pivot.columns if column != "mean"]
+    # Theo thứ tự task, rồi tới model lạ (nếu có) theo thứ tự trong CSV — để
+    # mỗi thuật toán giữ nguyên một màu qua các lần vẽ.
+    algos = ([a for a in ALGO_ORDER if a in present]
+             + [a for a in present if a not in ALGO_ORDER])
     order = pivot.index[::-1]                       # lớn nhất lên trên cùng
 
     # Chiều cao theo SỐ FEATURE, không nhân với số model: nhân vào thì hình
@@ -284,15 +309,15 @@ def plot_feature_importance(runs_dir=None, out=None, top_n: int = 10):
     for index, algo in enumerate(algos):
         offset = (index - (len(algos) - 1) / 2) * height
         values = pivot.loc[order, algo]
+        colour = ALGO_COLOR.get(algo, SERIES[index % len(SERIES)])
         ax.barh(base + offset, values, height=height * 0.9,
-                color=SERIES[index % len(SERIES)], label=algo, zorder=3)
+                color=colour, label=algo, zorder=3)
 
         for position, value in zip(base + offset, values):
             if value < invisible:
                 ax.annotate(f"{value:.4f}", (value, position),
                             textcoords="offset points", xytext=(5, 0),
-                            va="center", fontsize=7,
-                            color=SERIES[index % len(SERIES)])
+                            va="center", fontsize=7, color=colour)
 
     _style(ax)
     ax.set_yticks(base, order)

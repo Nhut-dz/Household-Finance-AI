@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Enums\IntentCodeEnum;
 use App\Exceptions\AdvisorUnavailableException;
 use App\Exceptions\MissingBirthYearException;
+use App\Exceptions\MissingLoanApplicationException;
 use App\Models\Household;
+use App\Models\LoanApplication;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -195,6 +197,82 @@ class AdvisorClient
     }
 
     /**
+     * Ước lượng rủi ro khoản vay đang xét bằng model ML02 (F04) — cho thẻ trên
+     * màn "Chẩn đoán hồ sơ", cùng khuôn với `predict()` của ML01.
+     *
+     * Gửi hồ sơ dạng cột DB + 15 trường khoản vay, y như luồng chat: phép quy
+     * đổi sang feature nằm ở pipeline Python, nên thẻ và chip "Chẩn đoán rủi
+     * ro vay vốn" luôn nói cùng một xác suất về cùng một khoản vay.
+     *
+     * Chưa khai khoản vay thì ném ngay, không gọi sang Python: đó là trạng
+     * thái bình thường của phần lớn hộ (chỉ xem sức khỏe tài chính, không định
+     * vay), và FE cần một mã 422 rõ ràng để hiện nút sang màn nhập.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws MissingLoanApplicationException khi chưa khai hoặc dữ liệu khoản vay không hợp lệ
+     * @throws AdvisorUnavailableException khi chưa cấu hình hoặc ML không phản hồi
+     */
+    public function predictLoanRisk(Household $household): array
+    {
+        $application = $household->loanApplication()->first();
+
+        if ($application === null) {
+            throw new MissingLoanApplicationException(
+                'Hồ sơ chưa có thông tin khoản vay nên chưa đánh giá được rủi ro. Vui lòng điền màn Thông tin khoản vay.'
+            );
+        }
+
+        $baseUrl = config('services.python_advisor.url');
+
+        if (blank($baseUrl)) {
+            throw new AdvisorUnavailableException(
+                'Chưa cấu hình service ML (PYTHON_ADVISOR_URL).'
+            );
+        }
+
+        try {
+            $response = Http::baseUrl(rtrim((string) $baseUrl, '/'))
+                ->timeout((int) config('services.python_advisor.timeout'))
+                ->acceptJson()
+                ->withToken((string) config('services.python_advisor.token'))
+                ->post('/predict-loan-risk', [
+                    'household' => $this->householdPayload($household),
+                    'loan_application' => $this->loanApplicationPayload($application),
+                ]);
+        } catch (ConnectionException $e) {
+            Log::warning('Không kết nối được service ML.', ['error' => $e->getMessage()]);
+
+            throw new AdvisorUnavailableException('Không kết nối được service ML.');
+        }
+
+        // Python trả 422 khi dữ liệu khoản vay không qua được validate. Đó vẫn
+        // là chuyện dữ liệu của người dùng — giữ nguyên mã và lời nhắn, đừng
+        // gộp vào 503 "service không phản hồi".
+        if ($response->status() === 422) {
+            $detail = $response->json('detail');
+
+            throw new MissingLoanApplicationException(
+                is_string($detail) ? $detail : 'Thông tin khoản vay chưa hợp lệ.'
+            );
+        }
+
+        if ($response->failed()) {
+            Log::warning('Service ML trả về lỗi khi ước lượng rủi ro khoản vay.', [
+                'household_id' => $household->id,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            throw new AdvisorUnavailableException(
+                'Service ML đang không phản hồi (mã '.$response->status().').'
+            );
+        }
+
+        return $response->json() ?? [];
+    }
+
+    /**
      * Quy đổi hồ sơ DB sang đúng 17 feature mà ML01 được train.
      *
      * Hai chỗ hai bên không khớp nhau, xử lý ở đây:
@@ -294,6 +372,17 @@ class AdvisorClient
      * vì chạy ML02 trên dữ liệu rỗng — chạy thì vẫn ra một xác suất, và đó là
      * con số vô nghĩa mà không có gì báo hiệu.
      *
+     * KHÔNG gửi `interest_rate`, dù cột đó đã có trong DB. Hai lý do:
+     *
+     *   1. `hfml.data.schema.LoanApplication` khai `extra="forbid"`, nên một
+     *      key lạ không làm hỏng riêng trường đó mà làm hỏng VALIDATE CẢ HỒ SƠ
+     *      — mất luôn ML01 lẫn ML02, đúng kiểu lỗi đã ghi ở `ASSET_TYPE_TO_PYTHON`.
+     *   2. Lãi suất không phải feature của ML02. Home Credit không có cột lãi
+     *      suất; ảnh hưởng duy nhất của nó là qua `monthly_payment`, và trường
+     *      đó vẫn nằm trong payload y như trước (→ `AMT_ANNUITY`).
+     *
+     * Nói cách khác: payload này CỐ Ý đứng yên ở 15 trường.
+     *
      * @return array<string, mixed>|null
      */
     private function loanApplicationFor(Household $household, ?IntentCodeEnum $intent): ?array
@@ -308,11 +397,25 @@ class AdvisorClient
             return null;
         }
 
+        return $this->loanApplicationPayload($application);
+    }
+
+    /**
+     * 15 trường khoản vay gửi sang Python — dùng chung cho luồng chat và thẻ
+     * ML02, để hai nơi không thể gửi hai bộ trường khác nhau.
+     *
+     * @return array<string, mixed>
+     */
+    private function loanApplicationPayload(LoanApplication $application): array
+    {
         return [
             'borrower_age' => $application->borrower_age,
             'gender' => $application->gender->value,
             'marital_status' => $application->marital_status->value,
-            'children_count' => $application->children_count,
+            // Số con KHÔNG gửi ở đây — nó đã nằm trong `householdPayload()`.
+            // `hfml.data.schema.LoanApplication` đã bỏ trường này, mà schema đó
+            // khai `extra="forbid"`, nên gửi kèm là hỏng validate CẢ HỒ SƠ chứ
+            // không riêng khối vay: mất luôn ML01 lẫn ML02.
             'education_level' => $application->education_level->value,
             'occupation' => $application->occupation->value,
             'employment_years' => (float) $application->employment_years,

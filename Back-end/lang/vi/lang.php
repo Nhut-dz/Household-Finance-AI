@@ -13,6 +13,7 @@ return [
     'Loan_application_fetched' => 'Lấy thông tin khoản vay thành công.',
     'Loan_application_deleted' => 'Xoá thông tin khoản vay thành công.',
     'Prediction_fetched' => 'Dự đoán nhóm khuyến nghị thành công.',
+    'Loan_risk_fetched'  => 'Ước lượng rủi ro khoản vay thành công.',
     'Messages_fetched'  => 'Lấy hội thoại thành công.',
     'Conversations_deleted' => 'Xoá toàn bộ lịch sử hội thoại thành công.',
     'Message_sent'      => 'Gửi thành công.',

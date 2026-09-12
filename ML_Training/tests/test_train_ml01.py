@@ -366,6 +366,38 @@ def test_feature_importance_matches_columns_after_preprocessing(data):
     assert importance["importance"].sum() == pytest.approx(1.0)
 
 
+def test_bagging_importance_is_the_mean_of_its_trees(data):
+    """`BaggingClassifier` không có `feature_importances_`; importance của nó
+    phải là trung bình các cây con, ánh xạ qua `estimators_features_`.
+
+    Dùng `max_features=0.5` để mỗi cây chỉ thấy một nửa số cột: nếu bỏ bước
+    ánh xạ, phép cộng vẫn chạy mà con số gán nhầm cột — test này bắt được.
+    """
+    from sklearn.ensemble import BaggingClassifier
+
+    X, y = data
+    model = PipelineClassifier(
+        task="ml01", algo=BAGGING,
+        estimator=BaggingClassifier(
+            estimator=DecisionTreeClassifier(random_state=42),
+            n_estimators=5, max_features=0.5, random_state=42),
+        preprocessing=build_preprocessing_pipeline())
+    model.fit(X, y)
+    importance = model.feature_importance().set_index("feature")["importance"]
+
+    bagging = model.pipeline_.named_steps["model"]
+    expected = np.zeros(len(model.transformed_feature_names_))
+    for tree, used in zip(bagging.estimators_, bagging.estimators_features_):
+        expected[used] += tree.feature_importances_
+    expected /= len(bagging.estimators_)
+
+    assert list(importance.index) == sorted(
+        model.transformed_feature_names_,
+        key=lambda f: -float(importance[f]))
+    assert importance.reindex(model.transformed_feature_names_).to_numpy()         == pytest.approx(expected)
+    assert importance.sum() == pytest.approx(1.0)
+
+
 def test_dummy_has_no_feature_importance(data):
     X, y = data
     model = PipelineClassifier(task="ml01", algo=BASELINE,
@@ -1006,20 +1038,17 @@ def importance_run(tmp_path_factory) -> dict:
         SMALL, use_saved=False, runs_dir=tmp_path_factory.mktemp("runs"))
 
 
-def test_bagging_is_reported_as_unavailable_with_a_reason(importance_run):
-    """`BaggingClassifier` không phơi ra `feature_importances_`.
+def test_every_contender_reports_importance(importance_run):
+    """Cả bốn thuật toán, kể cả Bagging.
 
-    Nó phải nằm trong `unavailable` kèm lý do, không được biến mất lặng lẽ —
-    thiếu một model mà không nói vì sao là chỗ người đọc báo cáo sẽ hỏi.
+    `BaggingClassifier` không phơi ra `feature_importances_` nhưng
+    `PipelineClassifier.feature_importance()` trung bình qua cây con, nên
+    Bagging không được vắng mặt — hình `feature_importance.png` thiếu một
+    model là chỗ người đọc báo cáo sẽ hỏi.
     """
-    assert BAGGING in importance_run["unavailable"]
-    assert "feature_importances_" in importance_run["unavailable"][BAGGING]
-    assert BAGGING not in set(importance_run["importance"]["algo"])
-
-
-def test_every_other_model_reports_importance(importance_run):
     reported = set(importance_run["importance"]["algo"])
-    assert reported == {DECISION_TREE, RANDOM_FOREST, XGBOOST}
+    assert reported == set(CONTENDERS)
+    assert importance_run["unavailable"] == {}
 
 
 def test_importance_covers_every_feature_and_sums_to_one(importance_run):
@@ -1070,7 +1099,7 @@ def test_missing_artifact_falls_back_to_refit(tmp_path):
 def test_top_table_lists_the_requested_number_of_features(importance_run):
     top = importance_run["top"]
     assert list(top.index) == [1, 2, 3, 4, 5]
-    assert set(top.columns) == {DECISION_TREE, RANDOM_FOREST, XGBOOST}
+    assert set(top.columns) == set(CONTENDERS)
 
 
 def test_importance_report_does_not_select_a_model(importance_run):

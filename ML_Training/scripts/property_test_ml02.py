@@ -72,7 +72,7 @@ def loan(*, amount: float, monthly_payment: float, asset_price: float,
          has_overdue_loan: bool, total_overdue_amount: float) -> dict:
     return {
         "borrower_age": borrower_age, "gender": "male",
-        "marital_status": "married", "children_count": 2,
+        "marital_status": "married",
         "education_level": "higher", "occupation": "office_staff",
         "employment_years": employment_years, "loan_amount": amount,
         "loan_term_months": 240, "monthly_payment": monthly_payment,

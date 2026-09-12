@@ -101,11 +101,43 @@ class PipelineClassifier(BaseClassifier):
 
         Tên cột lấy SAU tiền xử lý: các bước lọc có thể đã bỏ bớt cột, nên
         ghép `feature_importances_` với danh sách đầu vào là lệch chỉ số.
+
+        `BaggingClassifier` không phơi ra `feature_importances_` — nhưng từng
+        cây con của nó thì có, và RandomForest cũng chỉ là trung bình của các
+        cây con như vậy. Nên tính cùng cách: cộng importance của từng cây rồi
+        chia cho số cây. Phải ánh xạ qua `estimators_features_` vì với
+        `max_features < 1.0` mỗi cây chỉ thấy một tập con cột — bỏ bước này
+        thì con số gán nhầm cột mà bảng vẫn trông bình thường.
+
+        Model không có cả hai (DummyClassifier) → `AttributeError`, để tầng
+        báo cáo ghi lý do thay vì để model biến mất lặng lẽ.
         """
         model = self.pipeline_.named_steps["model"]
-        importances = getattr(model, "feature_importances_", None)
+        names = self.transformed_feature_names_
+        importances = _builtin_importances(model, len(names))
         if importances is None:
-            raise AttributeError(f"{self.algo} không có feature_importances_")
-        return (pd.DataFrame({"feature": self.transformed_feature_names_,
-                              "importance": importances})
+            raise AttributeError(
+                f"{self.algo} không có feature_importances_ "
+                "và không có cây con nào để trung bình")
+        return (pd.DataFrame({"feature": names, "importance": importances})
                 .sort_values("importance", ascending=False, ignore_index=True))
+
+
+def _builtin_importances(model, n_features: int) -> np.ndarray | None:
+    """`feature_importances_` của model, hoặc trung bình các cây con nếu model
+    là ensemble không tự phơi ra thuộc tính này (Bagging). `None` nếu không có.
+    """
+    values = getattr(model, "feature_importances_", None)
+    if values is not None:
+        return np.asarray(values, dtype=float)
+
+    children = getattr(model, "estimators_", None)
+    if not children or not all(hasattr(c, "feature_importances_") for c in children):
+        return None
+
+    total = np.zeros(n_features, dtype=float)
+    columns = getattr(model, "estimators_features_",
+                      [np.arange(n_features)] * len(children))
+    for child, used in zip(children, columns):
+        total[np.asarray(used)] += child.feature_importances_
+    return total / len(children)

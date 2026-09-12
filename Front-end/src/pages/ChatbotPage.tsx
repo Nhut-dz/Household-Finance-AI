@@ -23,6 +23,7 @@ import {
   type IntentCode,
 } from '../api/messages'
 import { getLoanApplication } from '../api/loanApplication'
+import ChatAnswer from '../components/ChatAnswer'
 import { ApiError } from '../lib/api'
 
 /** Đọc câu trả lời bằng giọng nói của trình duyệt (không cần API riêng). */
@@ -81,54 +82,6 @@ const QUICK: {
 ]
 
 /** App logo used as the assistant's avatar. */
-function FormattedText({ content }: { content: string }) {
-  const parseInline = (text: string) => {
-    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|_.*?_)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
-        return (
-          <strong key={idx} className="font-bold text-slate-900">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      if (
-        (part.startsWith("*") && part.endsWith("*") && part.length > 2) ||
-        (part.startsWith("_") && part.endsWith("_") && part.length > 2)
-      ) {
-        return (
-          <em key={idx} className="italic text-slate-500">
-            {part.slice(1, -1)}
-          </em>
-        );
-      }
-      return part;
-    });
-  };
-
-  const lines = content.split("\n");
-
-  return (
-    <div className="space-y-1 text-sm leading-relaxed text-slate-700">
-      {lines.map((line, lineIdx) => {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          return <div key={lineIdx} className="h-1" />;
-        }
-        if (trimmed.startsWith("- ")) {
-          return (
-            <div key={lineIdx} className="flex items-start gap-2 py-0.5 pl-1">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
-              <div className="flex-1">{parseInline(trimmed.slice(2))}</div>
-            </div>
-          );
-        }
-        return <div key={lineIdx}>{parseInline(line)}</div>;
-      })}
-    </div>
-  );
-}
-
 function BotAvatar({ className = '' }: { className?: string }) {
   return (
     <img
@@ -346,8 +299,7 @@ export default function ChatbotPage({
                 <div key={m.id} className="flex gap-3">
                   <BotAvatar className="h-8 w-8" />
                   <div className="rounded-2xl rounded-tl-sm bg-slate-50 p-4">
-                    <FormattedText content={m.content} />
-
+                    <ChatAnswer content={m.content} />
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button
@@ -454,8 +406,15 @@ export default function ChatbotPage({
           </form>
         </div>
 
-        {/* Profile card */}
-        <div className="order-1 lg:order-2">
+        {/*
+          Profile card — dính theo màn hình khi cuộn hội thoại dài.
+
+          Chỉ từ `lg`: dưới đó cột này nằm TRÊN khung chat (`order-1`), dính
+          thì nó chiếm nửa màn điện thoại. `self-start` để ô lưới co theo nội
+          dung thay vì kéo dài bằng cột chat — ô cao bằng cột chat thì sticky
+          không có chỗ để trượt.
+        */}
+        <div className="order-1 lg:sticky lg:top-6 lg:order-2 lg:self-start">
           <div className="rounded-2xl border border-slate-200 p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-bold text-slate-800">Hồ sơ gia đình</h3>
@@ -474,10 +433,14 @@ export default function ChatbotPage({
             <ProfileRow label="Thành viên" value={memberText} />
             <ProfileRow label="Nhu cầu" value={need} />
           </div>
+          {/*
+            Ảnh trang trí, vuông 320px. Cộng với thẻ hồ sơ là ~720px — trên màn
+            hình thấp thì phần dính bị cắt đáy; ẩn ảnh đi để thẻ luôn hiện trọn.
+          */}
           <img
             src="/img4.jpg"
             alt="Minh họa gia đình đi dã ngoại"
-            className="mt-4 h-auto w-full rounded-2xl"
+            className="mt-4 h-auto w-full rounded-2xl lg:[@media(max-height:780px)]:hidden"
           />
         </div>
       </div>

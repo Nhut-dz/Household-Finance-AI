@@ -56,7 +56,7 @@ def household(**overrides) -> dict:
 def loan(**overrides) -> dict:
     base = dict(
         borrower_age=35, gender="male", marital_status="married",
-        children_count=2, education_level="higher", occupation="office_staff",
+        education_level="higher", occupation="office_staff",
         employment_years=8.5, loan_amount=1_400_000_000, loan_term_months=240,
         monthly_payment=12_000_000, asset_price=2_000_000_000,
         loan_purpose="buy_house", previous_loan_count=3, late_payment_count=1,

@@ -18,6 +18,7 @@ import { getProposal, type Proposal } from '../api/proposal'
 import { deleteHousehold } from '../api/households'
 import ConfirmDialog from '../components/ConfirmDialog'
 import PredictionCard from '../components/PredictionCard'
+import LoanRiskCard from '../components/LoanRiskCard'
 import { ApiError } from '../lib/api'
 
 /** "—" khi backend chưa có số liệu cho ô đó. */
@@ -192,11 +193,16 @@ export default function ProposalPage({
   }
 
   if (proposal === null) {
+    // Chưa có bản chẩn đoán lưu sẵn thì hai thẻ ML vẫn là nội dung đầy đủ của
+    // trang: chúng tự tính trên hồ sơ hiện tại. Trước đây dưới hai thẻ còn một
+    // khối "Chưa có dữ liệu chẩn đoán hồ sơ" — kết quả model vừa hiện ngay
+    // trên, nên dòng đó nói sai, và nút "Nhập thông tin mới" của nó dẫn người
+    // dùng đi khai lại thứ đã khai.
     return (
       <div className="space-y-4">
-        {/* Chưa có chẩn đoán không có nghĩa là chưa phân loại được. */}
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm sm:p-8">
+        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm sm:p-8 [&>*:last-child]:mb-0">
           <PredictionCard householdId={householdId} />
+          <LoanRiskCard householdId={householdId} onNavigate={onNavigate} />
         </div>
         {error && (
           <div className="flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -204,10 +210,6 @@ export default function ProposalPage({
             <p>{error}</p>
           </div>
         )}
-        <EmptyState
-          message="Hồ sơ của bạn chưa được chẩn đoán. Hãy trò chuyện với AI hoặc cập nhật thông tin để hệ thống phân tích lại."
-          onNavigate={onNavigate}
-        />
       </div>
     )
   }
@@ -283,8 +285,9 @@ export default function ProposalPage({
         </div>
       )}
 
-      {/* Overview */}
+      {/* Hai thẻ ML — ML01 nhóm định hướng, ML02 rủi ro khoản vay đang xét. */}
       <PredictionCard householdId={householdId} />
+      <LoanRiskCard householdId={householdId} onNavigate={onNavigate} />
 
       <section className="rounded-2xl border border-slate-200 p-5">
         <span className="inline-block rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-bold text-white">

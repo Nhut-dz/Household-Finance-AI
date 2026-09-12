@@ -43,7 +43,6 @@ SAMPLE = {
         "borrower_age": 35,
         "gender": "male",
         "marital_status": "married",
-        "children_count": 2,
         "education_level": "higher",
         "occupation": "office_staff",
         "employment_years": 8.5,

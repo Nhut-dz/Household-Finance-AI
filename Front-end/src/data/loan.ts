@@ -70,15 +70,23 @@ export interface LoanApplicationForm {
   borrower_age: number | null
   gender: Gender | ''
   marital_status: MaritalStatus | ''
-  children_count: number
+  // KHÔNG có `children_count`: số con đã khai ở màn "Nhập thông tin" và thuộc
+  // hồ sơ hộ gia đình. Hỏi lại ở đây là bắt người dùng gõ hai lần cùng một con
+  // số, rồi để hai bản sao đó lệch nhau.
   education_level: EducationLevel | ''
   occupation: Occupation | ''
   employment_years: number | null
 
   // B. Thông tin khoản vay
+  //
+  // KHÔNG có `monthly_payment`: từ khi có lãi suất, khoản trả hàng tháng là
+  // giá trị SUY RA chứ không phải trạng thái form. Giữ nó ở đây thì sẽ có hai
+  // nguồn sự thật cho cùng một con số — cái người dùng thấy và cái backend
+  // tính — và chúng chỉ cần lệch nhau một lần là đủ gây khó hiểu.
   loan_amount: number
   loan_term_months: number | null
-  monthly_payment: number
+  /** Lãi suất %/năm. `null` = chưa khai; khác hẳn 0 = vay không lãi. */
+  interest_rate: number | null
   asset_price: number
   loan_purpose: LoanPurpose | ''
 
@@ -93,14 +101,13 @@ export const emptyLoanForm: LoanApplicationForm = {
   borrower_age: null,
   gender: '',
   marital_status: '',
-  children_count: 0,
   education_level: '',
   occupation: '',
   employment_years: null,
 
   loan_amount: 0,
   loan_term_months: null,
-  monthly_payment: 0,
+  interest_rate: null,
   asset_price: 0,
   loan_purpose: '',
 
@@ -181,9 +188,98 @@ export const toOptions = <K extends string>(labels: Record<K, string>) =>
   (Object.keys(labels) as K[]).map((value) => ({ value, label: labels[value] }))
 
 /**
- * Trả góp tối thiểu để trả hết GỐC trong kỳ hạn, chưa tính lãi. Backend chặn
- * mọi giá trị nhỏ hơn số này, nên form gợi ý sẵn thay vì để người dùng gửi lên
- * rồi mới bị trả về.
+ * Khoảng lãi suất %/năm được chấp nhận, và số chữ số thập phân tối đa.
+ *
+ * Giữ khớp `StoreLoanApplicationRequest::MIN_INTEREST_RATE` / `MAX_INTEREST_RATE`
+ * / `INTEREST_RATE_DECIMALS` và CHECK `chk_loan_interest_rate` ở DB. Ba nơi
+ * lệch nhau thì form cho gõ một giá trị mà backend từ chối, hoặc ngược lại.
  */
-export const minimumMonthlyPayment = (amount: number, termMonths: number | null) =>
-  amount > 0 && termMonths ? Math.ceil(amount / termMonths) : 0
+export const INTEREST_RATE_MIN = 6
+export const INTEREST_RATE_MAX = 10
+export const INTEREST_RATE_DECIMALS = 2
+
+/** Số chữ số sau dấu thập phân. `9.99` → 2, `10` → 0. */
+const decimalPlaces = (n: number) => (String(n).split('.')[1] ?? '').length
+
+/**
+ * Khoản trả hàng tháng (EMI). Người dùng KHÔNG nhập số này — form hiển thị nó
+ * read-only, và backend tính lại y hệt khi lưu.
+ *
+ * Chưa khai lãi suất thì chỉ chia đều tiền gốc; có lãi suất thì dùng công thức
+ * trả góp đều, gồm cả gốc lẫn lãi:
+ *
+ *     r = lãi suất năm / 100 / 12
+ *     EMI = P · r · (1+r)^n / ((1+r)^n − 1)
+ *
+ * Phải khớp TỪNG BƯỚC với `LoanApplicationService::monthlyPayment()` phía
+ * backend, kể cả việc làm tròn LÊN: lệch cách làm tròn thì người dùng thấy một
+ * số trước khi lưu và một số khác sau khi lưu, mà chẳng có gì giải thích.
+ */
+export const monthlyPayment = (
+  amount: number,
+  termMonths: number | null,
+  ratePercent: number | null,
+) => {
+  if (amount <= 0 || !termMonths) return 0
+  if (ratePercent === null || ratePercent <= 0) return Math.ceil(amount / termMonths)
+
+  const monthlyRate = ratePercent / 100 / 12
+  const growth = (1 + monthlyRate) ** termMonths
+
+  return Math.ceil((amount * monthlyRate * growth) / (growth - 1))
+}
+
+/**
+ * Ảnh chụp khoản trả hàng tháng ĐÃ LƯU, kèm ba trường đã sinh ra nó.
+ *
+ * Tồn tại để form biết khi nào KHÔNG được hiện số tự tính. Backend chỉ tính lại
+ * EMI khi một trong ba trường này đổi (`LoanApplicationService::paymentDriversUnchanged()`),
+ * nên form phải theo đúng luật đó — nếu không, bản ghi cũ sẽ hiện một con số
+ * trên màn hình rồi lưu xuống một con số khác, và không có gì giải thích.
+ */
+export interface SavedPayment {
+  loan_amount: number
+  loan_term_months: number
+  interest_rate: number | null
+  monthly_payment: number
+}
+
+/**
+ * Ba trường quyết định EMI có còn y như lúc nạp bản ghi không?
+ *
+ * Phải khớp `LoanApplicationService::PAYMENT_DRIVERS` phía backend. Lệch một
+ * trường là hai bên bất đồng về việc có tính lại hay không.
+ */
+export const paymentDriversUnchanged = (
+  saved: SavedPayment | null,
+  form: LoanApplicationForm,
+): saved is SavedPayment =>
+  saved !== null &&
+  saved.loan_amount === form.loan_amount &&
+  saved.loan_term_months === form.loan_term_months &&
+  saved.interest_rate === form.interest_rate
+
+/**
+ * Lỗi của ô lãi suất, `null` khi hợp lệ (bỏ trống cũng là hợp lệ — đây là
+ * trường tùy chọn).
+ *
+ * Kiểm ngay ở FE chứ không đợi 422: lãi suất sai thì EMI hiển thị bên dưới
+ * cũng sai theo, nên phải chặn trước khi con số đó lên màn hình.
+ */
+export const interestRateError = (rate: number | null): string | null => {
+  if (rate === null) return null
+
+  if (!Number.isFinite(rate)) {
+    return 'Lãi suất phải là một con số.'
+  }
+
+  if (rate < INTEREST_RATE_MIN || rate > INTEREST_RATE_MAX) {
+    return `Lãi suất phải nằm trong khoảng ${INTEREST_RATE_MIN}% đến ${INTEREST_RATE_MAX}%/năm.`
+  }
+
+  if (decimalPlaces(rate) > INTEREST_RATE_DECIMALS) {
+    return `Lãi suất chỉ được có tối đa ${INTEREST_RATE_DECIMALS} chữ số sau dấu thập phân.`
+  }
+
+  return null
+}
