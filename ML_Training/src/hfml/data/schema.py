@@ -292,7 +292,10 @@ class LoanApplication(BaseModel):
     borrower_age: int = Field(..., ge=18, le=100, title="Tuổi")
     gender: GenderType = Field(..., title="Giới tính")
     marital_status: MaritalStatusType = Field(..., title="Tình trạng hôn nhân")
-    children_count: int = Field(..., ge=0, le=20, title="Số con")
+    # KHÔNG có `children_count`: số con chỉ khai một lần ở `HouseholdProfile`.
+    # Hỏi lại ở đây từng tạo ra hai nguồn cho cùng một sự thật, mà `CNT_CHILDREN`
+    # và `CNT_FAM_MEMBERS` của ML02 lại đọc từ hai nguồn khác nhau — xem
+    # `hfml.pipeline.adapters.to_ml02_frame`.
     education_level: EducationLevelType = Field(..., title="Trình độ học vấn")
     occupation: OccupationType = Field(..., title="Nghề nghiệp")
     employment_years: Decimal = Field(..., ge=0, le=60, title="Thời gian làm việc")

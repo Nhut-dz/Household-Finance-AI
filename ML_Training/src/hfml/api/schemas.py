@@ -1,8 +1,8 @@
 """Pydantic request/response của tầng api.
 
-Hiện chỉ phục vụ `POST /predict` (ML01). Contract ở đây là **17 feature đã
-chuẩn hoá**, đúng tên và đúng ý nghĩa mà model được train — không phải tên cột
-DB của backend.
+Phục vụ `POST /predict` (ML01) và `POST /predict-loan-risk` (ML02). Với ML01,
+contract là **17 feature đã chuẩn hoá**, đúng tên và đúng ý nghĩa mà model
+được train — không phải tên cột DB của backend.
 
 Vì sao đặt ranh giới ở đây chứ không nhận thẳng hồ sơ dạng DB
 --------------------------------------------------------------
@@ -20,7 +20,7 @@ một nhãn trông hợp lý, và không ai biết nó dựa trên tuổi bịa.
 """
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -133,3 +133,57 @@ def build_probabilities(classes: list[str], values) -> list[Ml01Probability]:
         )
         for group in ORDERED_GROUPS
     ]
+
+
+# --------------------------------------------------------------------------
+# ML02 — rủi ro khoản vay, cho thẻ trên màn "Chẩn đoán hồ sơ"
+# --------------------------------------------------------------------------
+class Ml02PredictRequest(BaseModel):
+    """Đầu vào của `/predict-loan-risk`: hồ sơ hộ + khoản vay đang xét.
+
+    Khác `/predict`: nhận dạng CỘT DB (như `/advise`), không nhận feature đã
+    chuẩn hoá. ML02 cần cả hộ lẫn khoản vay, và phép quy đổi sang feature
+    (`to_ml02_frame`) đã nằm trong pipeline — bắt Laravel làm lại là hai bộ
+    luật quy đổi cho cùng một model.
+    """
+
+    household: dict[str, Any]
+    loan_application: dict[str, Any] | None = Field(
+        None, description="15 trường của màn 'Thông tin khoản vay'. Thiếu → 422")
+
+
+#: Thứ tự hiển thị cố định, xấu → tốt như thang của ML01 (🔴 → 🟢), để thanh
+#: xác suất trên FE không đổi chỗ giữa hai lần gọi.
+ML02_ORDERED_LABELS: Final[tuple[str, ...]] = ("HIGH_RISK", "LOW_RISK")
+
+
+class Ml02ModelConfidence(BaseModel):
+    """Số liệu KỸ THUẬT về độ tin cậy của ML02 — không phải kết quả dự đoán.
+
+    `confidence` KHÔNG phải xác suất của nhãn thắng như ML01: với bài toán
+    nhị phân có ngưỡng riêng, độ tin cậy là khoảng cách tới ranh giới quyết
+    định (xem `pipeline.confidence.check_ml02`). Hồ sơ sát ngưỡng đổi chút dữ
+    liệu là đổi nhãn — `low_confidence` bật để FE nói ra điều đó.
+    """
+
+    confidence: float = Field(..., description="Khoảng cách tới ngưỡng, 0–1")
+    low_confidence: bool
+    threshold: float = Field(..., description="Ngưỡng cắt LOW/HIGH đã chốt ở F04")
+    description: str = Field(..., description="Mức xác suất bằng chữ, tiếng Việt")
+    probabilities: list[Ml01Probability] = Field(
+        ..., description="Hai lớp, thứ tự cố định HIGH_RISK → LOW_RISK")
+
+
+class Ml02PredictResponse(BaseModel):
+    """Kết quả ML02 — rủi ro của khoản vay đang xét (F04).
+
+    `prediction` là output nghiệp vụ duy nhất: LOW_RISK hoặc HIGH_RISK.
+    `risk_probability` là P(HIGH_RISK) — con số mà nhãn được cắt từ đó.
+    """
+
+    prediction: str = Field(..., description="LOW_RISK · HIGH_RISK")
+    prediction_vi: str
+    risk_probability: float = Field(
+        ..., description="Xác suất gặp khó khăn trả nợ ước tính, 0–1")
+    model_confidence: Ml02ModelConfidence
+    model_version: str

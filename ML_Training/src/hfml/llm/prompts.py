@@ -46,7 +46,15 @@ from typing import Any, Final
 #: "CRITICAL"` trong payload: chép lại nguyên chuỗi đó vào câu tiếng Việt.
 #: Đo được trên một lượt thật — câu trả lời hoàn toàn hợp lệ về số liệu vẫn
 #: chứa "(CRITICAL)" và "xác suất 0.9449".
-PROMPT_VERSION: Final[str] = "ai02-v2"
+#:
+#: v3 (12/09/2026) — thêm mục TRỌNG TÂM theo intent (`INTENT_FOCUS`). Bản v2
+#: chỉ ghi "CHỦ ĐỀ: Vay vốn" rồi đổ dữ liệu, không nói kết quả nào là câu trả
+#: lời và kết quả nào là bối cảnh. Gặp hồ sơ có DTI 60% — quy tắc RB02 và
+#: `overall_status` đều "cần xử lý ngay" trong khi ML02 ước lượng "rủi ro
+#: thấp 98%" — model mở đầu bằng "tình hình tài chính thuộc nhóm cần xử lý
+#: ngay" và đẩy kết quả ML02 xuống đoạn thứ ba. Người bấm "Chẩn đoán rủi ro
+#: vay vốn" đọc xong tưởng mình nhận nhầm kết quả của chức năng khác.
+PROMPT_VERSION: Final[str] = "ai02-v3"
 
 #: Khoá bắt buộc của JSON mà LLM phải trả về.
 REQUIRED_KEYS: Final[tuple[str, ...]] = ("explanation", "recommendations")
@@ -139,9 +147,86 @@ biết. Vì vậy:
    Màn hình hiển thị chữ nguyên trạng, nên mọi ký hiệu đó hiện ra thành rác và
    bị máy đọc thành tiếng.
 
+4. TRẢ LỜI ĐÚNG PHẠM VI của chức năng người dùng đã chọn. Mỗi lượt có mục
+   TRỌNG TÂM nói rõ kết quả nào là câu trả lời, phần nào chỉ là bối cảnh, và
+   điều gì KHÔNG thuộc lượt này. Mở đầu bằng câu trả lời; không kết luận về
+   thứ nằm ngoài phạm vi, không đòi thêm dữ liệu cho chức năng khác.
+
+5. Khi kết quả quy tắc và ước lượng của mô hình trái chiều, nói rõ CẢ HAI và
+   vì sao chúng khác loại: quy tắc là phép tính theo công thức đã công bố,
+   mô hình là ước lượng thống kê từ những hồ sơ tương tự. Không hoà giải bằng
+   cách bỏ một bên hay đổi một bên.
+
 Kết thúc phần giải thích luôn kèm: đây là thông tin tham khảo, không phải tư
 vấn tài chính chuyên nghiệp.
 """
+
+#: Trọng tâm của từng intent — kết quả nào mở đầu, kết quả nào là bối cảnh.
+#:
+#: Khoá là `IntentCode.value`; bảng ở đây chứ không import enum để prompts.py
+#: giữ nguyên là module không phụ thuộc gì trong `hfml`. Thứ tự "mở đầu bằng
+#: X, rồi Y" khớp với cấu trúc bản dựng sẵn của cùng nhánh ở `narrator.py` và
+#: `api/main.py`, để câu trả lời của LLM và của template kể cùng một câu
+#: chuyện — chỉ khác văn phong.
+INTENT_FOCUS: Final[dict[str, str]] = {
+    "LOAN_RISK_DIAGNOSIS": """\
+Người dùng chọn "Chẩn đoán rủi ro vay vốn". Lượt này CHỈ nói về KHOẢN VAY
+đang xét — đó là toàn bộ phạm vi của mô hình ML02.
+  · Mở đầu bằng ước lượng của mô hình cho khoản vay (`ml02`: nhãn ở `label_vi`
+    kèm xác suất), rồi tới kiểm tra khả năng đáp ứng chính khoản vay đó theo
+    quy tắc (`rules.RB05`: số tiền vay, hạn mức an toàn, khoản trả hằng tháng).
+  · Số liệu thu nhập, chi tiêu trong `profile` là đầu vào của ước lượng —
+    chỉ nhắc khi cần giải thích vì sao khoản vay được xếp mức đó.
+  · KHÔNG đánh giá sức khỏe tài chính chung của hộ, KHÔNG xếp hộ vào nhóm nào,
+    KHÔNG bàn về dòng tiền, quỹ dự phòng hay tiết kiệm — đó là chức năng
+    "Chẩn đoán sức khỏe tài chính", không phải lượt này.
+  · Quy tắc nói khoản vay vượt khả năng trả mà mô hình ước lượng rủi ro thấp
+    (hoặc ngược lại) thì nói rõ cả hai — xem mục CÁCH TRÌNH BÀY.""",
+    "FINANCIAL_HEALTH_DIAGNOSIS": """\
+Người dùng chọn "Chẩn đoán sức khỏe tài chính". Lượt này CHỈ nói về sức khỏe
+tài chính của hộ — đó là toàn bộ phạm vi của mô hình ML01.
+  · Mở đầu bằng nhóm định hướng mà mô hình xếp hộ này vào (`ml01`: `label_vi`
+    kèm mức tin cậy), rồi tới đánh giá theo quy tắc: sức khỏe tài chính
+    (`rules.RB02`) và dòng tiền (`rules.RB01`).
+  · KHÔNG nhắc tới khoản vay nào, KHÔNG đòi thông tin khoản vay, KHÔNG nói về
+    hạn mức vay — đó là chức năng "Chẩn đoán rủi ro vay vốn", không phải lượt
+    này.""",
+    "LOAN_CAPACITY": """\
+Người dùng hỏi vay được bao nhiêu.
+  · Mở đầu bằng hạn mức theo quy tắc (`rules.RB05`): số tiền vay tối đa và
+    khoản trả hằng tháng tối đa có thể gánh thêm.
+  · Dòng tiền (`rules.RB01`) và sức khỏe tài chính (`rules.RB02`) là bối cảnh
+    giải thích vì sao hạn mức là con số đó.""",
+    "BUDGET_50_30_20": """\
+Người dùng chọn "Quy tắc 50/30/20".
+  · Mở đầu bằng ba mức phân bổ (`rules.RB04`) đối chiếu với chi tiêu thật của
+    hộ — nhóm nào đang vượt, nhóm nào còn dư.
+  · Dòng tiền (`rules.RB01`) là bối cảnh; sức khỏe tài chính (`rules.RB02`)
+    chỉ nhắc khi nó làm đổi lời khuyên phân bổ.""",
+    "SAVINGS_PACKAGE": """\
+Người dùng chọn "Gói tiết kiệm".
+  · Mở đầu bằng tiến độ mục tiêu tiết kiệm (`rules.RB03`) và quỹ dự phòng
+    hiện có so với mức khuyến nghị (`rules.RB02`), rồi tới phần dư hằng tháng
+    có thể để dành (`rules.RB01`).
+  · Không có dư thì nói thẳng: chưa để dành thêm được, việc trước mắt là tạo
+    ra thặng dư.""",
+    "DEBT": """\
+Người dùng hỏi về nợ đang có.
+  · Mở đầu bằng gánh nặng nợ hiện tại: tỉ lệ trả nợ trên thu nhập
+    (`rules.RB02`) và dòng tiền còn lại sau khi trả nợ (`rules.RB01`).
+  · Nhóm định hướng của mô hình (`ml01`, nếu có) là thông tin bổ trợ, nêu sau.""",
+    "INVESTMENT": """\
+Người dùng hỏi về đầu tư.
+  · Mở đầu bằng phần thặng dư có thể phân bổ (`rules.RB01`) và quỹ dự phòng
+    đã đủ chưa (`rules.RB02`) — chưa đủ thì nói rõ nên ưu tiên quỹ trước khi
+    đầu tư.
+  · Chỉ nói theo lớp tài sản, không nêu sản phẩm cụ thể.""",
+    "GENERAL": """\
+Không nhận ra ý định cụ thể.
+  · Mở đầu bằng tổng quan dòng tiền (`rules.RB01`) và sức khỏe tài chính
+    (`rules.RB02`), rồi trả lời đúng điều người dùng hỏi trong phạm vi dữ
+    liệu đã có.""",
+}
 
 #: Khuôn cho một lượt hỏi. `{...}` được điền bằng `render_user_prompt`.
 USER_PROMPT_TEMPLATE: Final[str] = """\
@@ -150,6 +235,7 @@ CÂU HỎI CỦA NGƯỜI DÙNG
 
 CHỦ ĐỀ ĐÃ XÁC ĐỊNH: {topic_label} (mã {intent})
 
+{focus_block}
 {history_block}
 DỮ LIỆU ĐÃ TÍNH SẴN
 {payload}
@@ -213,10 +299,14 @@ def render_user_prompt(context, topic_label: str) -> str:
             "Những điều sau phải xuất hiện trong câu trả lời của bạn:\n"
             f"{lines}\n")
 
+    focus = INTENT_FOCUS.get(context.intent, INTENT_FOCUS["GENERAL"])
+    focus_block = f"TRỌNG TÂM CỦA LƯỢT NÀY\n{focus}\n"
+
     return USER_PROMPT_TEMPLATE.format(
         question=context.question,
         topic_label=topic_label,
         intent=context.intent,
+        focus_block=focus_block,
         history_block=history_block,
         payload=json.dumps(payload, ensure_ascii=False, indent=2),
         numeric_facts=render_numeric_facts(context.numeric_facts),

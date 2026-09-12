@@ -1054,10 +1054,13 @@ def feature_importance_report(
 ) -> dict:
     """Task 13 — độ quan trọng feature của từng model ML01.
 
-    Không phải thuật toán nào cũng có. `BaggingClassifier` **không** phơi ra
-    `feature_importances_` (dù từng cây con của nó thì có), nên nó được ghi
-    vào `unavailable` kèm lý do thay vì biến mất khỏi bảng — thiếu một model
-    mà không nói vì sao là chỗ người đọc báo cáo sẽ hỏi.
+    Cả bốn thuật toán đều có. `BaggingClassifier` **không** tự phơi ra
+    `feature_importances_`, nhưng `PipelineClassifier.feature_importance()`
+    trung bình qua các cây con của nó — cùng phép tính RandomForest làm bên
+    trong — nên Bagging vẫn có mặt trong bảng. Model nào thật sự không có
+    (baseline Dummy) thì được ghi vào `unavailable` kèm lý do thay vì biến
+    mất khỏi bảng — thiếu một model mà không nói vì sao là chỗ người đọc
+    báo cáo sẽ hỏi.
 
     Model lấy từ artifact đã lưu nếu có, chỉ fit lại khi thiếu. Cột `source`
     ghi rõ từng model đến từ đâu, để con số tra ngược được.

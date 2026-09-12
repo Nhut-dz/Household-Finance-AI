@@ -22,7 +22,6 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: 'gender_label', type: 'string', example: 'Nam'),
         new OA\Property(property: 'marital_status', type: 'string', example: 'married'),
         new OA\Property(property: 'marital_status_label', type: 'string', example: 'Đã kết hôn'),
-        new OA\Property(property: 'children_count', type: 'integer', example: 2),
         new OA\Property(property: 'education_level', type: 'string', example: 'higher'),
         new OA\Property(property: 'education_level_label', type: 'string', example: 'Đại học'),
         new OA\Property(property: 'occupation', type: 'string', example: 'office_staff'),
@@ -31,7 +30,8 @@ use OpenApi\Attributes as OA;
 
         new OA\Property(property: 'loan_amount', type: 'number', example: 1400000000),
         new OA\Property(property: 'loan_term_months', type: 'integer', example: 240),
-        new OA\Property(property: 'monthly_payment', type: 'number', example: 12000000),
+        new OA\Property(property: 'interest_rate', type: 'number', nullable: true, description: 'Lãi suất %/năm. Null = người dùng chưa khai.', example: 8.5),
+        new OA\Property(property: 'monthly_payment', type: 'number', description: 'EMI hệ thống tự tính từ loan_amount, loan_term_months và interest_rate. Không nhận từ client.', example: 12146000),
         new OA\Property(property: 'asset_price', type: 'number', example: 2000000000),
         new OA\Property(property: 'loan_purpose', type: 'string', example: 'buy_house'),
         new OA\Property(property: 'loan_purpose_label', type: 'string', example: 'Mua nhà, căn hộ'),
@@ -71,7 +71,6 @@ class LoanApplicationResource extends JsonResource
             'gender_label' => $this->gender->label(),
             'marital_status' => $this->marital_status->value,
             'marital_status_label' => $this->marital_status->label(),
-            'children_count' => $this->children_count,
             'education_level' => $this->education_level->value,
             'education_level_label' => $this->education_level->label(),
             'occupation' => $this->occupation->value,
@@ -81,6 +80,10 @@ class LoanApplicationResource extends JsonResource
             // B. Thông tin khoản vay
             'loan_amount' => $this->asNumber($this->loan_amount),
             'loan_term_months' => $this->loan_term_months,
+            // Giữ `null` chứ không quy về 0: form phải phân biệt được "chưa
+            // khai lãi suất" với "lãi suất 0%", hai thứ hiện hai câu chữ khác
+            // nhau dưới ô EMI.
+            'interest_rate' => $this->asNumber($this->interest_rate),
             'monthly_payment' => $this->asNumber($this->monthly_payment),
             'asset_price' => $this->asNumber($this->asset_price),
             'loan_purpose' => $this->loan_purpose->value,

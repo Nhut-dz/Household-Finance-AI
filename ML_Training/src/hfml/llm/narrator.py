@@ -85,6 +85,21 @@ _ML01_GUIDANCE: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
 }
 
 
+def ml01_title(label_vi: str) -> str:
+    """Dòng mở đầu của mọi câu trả lời ML01 — dựng sẵn hay do LLM viết.
+
+    Nhãn là kết quả của MODEL, không phải câu chữ của LLM, nên dòng này do
+    tầng dưới gắn vào chứ không nhờ LLM viết lại: bản LLM và bản dựng sẵn phải
+    cùng mở đầu bằng cùng một kết luận, chỉ khác phần diễn giải phía sau.
+    """
+    return f"🧭 Chẩn đoán sức khỏe tài chính: {label_vi}"
+
+
+def ml02_title(label_vi: str) -> str:
+    """Dòng mở đầu của mọi câu trả lời ML02 — xem `ml01_title`."""
+    return f"⚖️ Chẩn đoán rủi ro vay vốn: {label_vi}"
+
+
 def _bullets(items: tuple[str, ...] | list[str]) -> str:
     return "\n".join(f"• {item}" for item in items)
 
@@ -136,7 +151,7 @@ def explain_ml01(
     )
 
     parts = [
-        f"🧭 Chẩn đoán sức khỏe tài chính: {label_vi}",
+        ml01_title(label_vi),
         "",
         headline,
         "",
@@ -200,7 +215,7 @@ def explain_ml02(
     from hfml.llm.presentation import percent
 
     parts = [
-        f"⚖️ Chẩn đoán rủi ro vay vốn: {label_vi}",
+        ml02_title(label_vi),
         "",
         f"Xác suất gặp khó khăn trả nợ ước tính: {percent(probability)}.",
     ]

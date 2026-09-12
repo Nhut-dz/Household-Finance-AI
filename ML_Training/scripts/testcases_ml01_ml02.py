@@ -127,14 +127,12 @@ def loan(
     total_overdue_amount: float = 0.0,
     occupation: str = "office_staff",
     education_level: str = "higher",
-    children_count: int = 2,
 ) -> dict:
     """Khối "Thông tin khoản vay" — đầu vào riêng của ML02."""
     return {
         "borrower_age": borrower_age,
         "gender": "male",
         "marital_status": "married",
-        "children_count": children_count,
         "education_level": education_level,
         "occupation": occupation,
         "employment_years": employment_years,

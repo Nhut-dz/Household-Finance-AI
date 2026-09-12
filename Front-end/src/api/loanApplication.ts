@@ -8,6 +8,7 @@ import {
   type LoanPurpose,
   type MaritalStatus,
   type Occupation,
+  type SavedPayment,
 } from '../data/loan'
 
 /** Body của PUT /households/{id}/loan-application. */
@@ -15,14 +16,16 @@ export interface StoreLoanApplicationPayload {
   borrower_age: number | null
   gender: string
   marital_status: string
-  children_count: number
   education_level: string
   occupation: string
   employment_years: number | null
 
   loan_amount: number
   loan_term_months: number | null
-  monthly_payment: number
+  interest_rate: number | null
+  // Không gửi `monthly_payment`: backend tự tính từ ba trường trên và bỏ qua
+  // mọi giá trị client đặt vào (StoreLoanApplicationRequest không còn rule cho
+  // nó). Gửi kèm chỉ tạo ảo giác là FE quyết định được con số đó.
   asset_price: number
   loan_purpose: string
 
@@ -50,7 +53,6 @@ export interface LoanApplicationResponse {
   gender_label: string
   marital_status: MaritalStatus
   marital_status_label: string
-  children_count: number
   education_level: EducationLevel
   education_level_label: string
   occupation: Occupation
@@ -59,6 +61,9 @@ export interface LoanApplicationResponse {
 
   loan_amount: number
   loan_term_months: number
+  /** `null` khi hộ chưa khai lãi suất. */
+  interest_rate: number | null
+  /** EMI backend tự tính. Chỉ để đọc — form không gửi trường này lên. */
   monthly_payment: number
   asset_price: number
   loan_purpose: LoanPurpose
@@ -82,14 +87,13 @@ export function toStoreLoanApplicationPayload(
     borrower_age: form.borrower_age,
     gender: form.gender,
     marital_status: form.marital_status,
-    children_count: form.children_count,
     education_level: form.education_level,
     occupation: form.occupation,
     employment_years: form.employment_years,
 
     loan_amount: form.loan_amount,
     loan_term_months: form.loan_term_months,
-    monthly_payment: form.monthly_payment,
+    interest_rate: form.interest_rate,
     asset_price: form.asset_price,
     loan_purpose: form.loan_purpose,
 
@@ -113,14 +117,15 @@ export function fromLoanApplicationResponse(
     borrower_age: data.borrower_age,
     gender: data.gender,
     marital_status: data.marital_status,
-    children_count: data.children_count,
     education_level: data.education_level,
     occupation: data.occupation,
     employment_years: Number(data.employment_years),
 
     loan_amount: Number(data.loan_amount),
     loan_term_months: data.loan_term_months,
-    monthly_payment: Number(data.monthly_payment),
+    // Phải qua `== null` chứ không `Number(...)` thẳng: `Number(null)` là 0,
+    // và 0 ở đây nghĩa là "vay không lãi" — một điều người dùng chưa hề khai.
+    interest_rate: data.interest_rate == null ? null : Number(data.interest_rate),
     asset_price: Number(data.asset_price),
     loan_purpose: data.loan_purpose,
 
@@ -130,6 +135,20 @@ export function fromLoanApplicationResponse(
     total_overdue_amount: Number(data.total_overdue_amount),
   }
 }
+
+/**
+ * Tách phần "khoản trả hàng tháng đã lưu" khỏi bản ghi trả về.
+ *
+ * Đây là thứ DUY NHẤT của response không đi vào `LoanApplicationForm`: form
+ * không sở hữu `monthly_payment` nữa, nhưng vẫn phải nhớ con số đã lưu để khỏi
+ * hiện đè một giá trị tự tính lên bản ghi mà backend sẽ giữ nguyên.
+ */
+export const savedPaymentOf = (data: LoanApplicationResponse): SavedPayment => ({
+  loan_amount: Number(data.loan_amount),
+  loan_term_months: data.loan_term_months,
+  interest_rate: data.interest_rate == null ? null : Number(data.interest_rate),
+  monthly_payment: Number(data.monthly_payment),
+})
 
 /**
  * Lưu hoặc ghi đè phương án vay của hộ. PUT là idempotent nên FE không cần biết

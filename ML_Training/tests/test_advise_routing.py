@@ -70,7 +70,6 @@ LOAN_APPLICATION = {
     "borrower_age": 35,
     "gender": "male",
     "marital_status": "married",
-    "children_count": 2,
     "education_level": "higher",
     "occupation": "office_staff",
     "employment_years": 8.5,
@@ -276,6 +275,35 @@ def test_ml02_branch_runs_the_model_once_the_artifact_exists(client):
     assert body["response_text"].strip()
 
 
+def test_ml_branches_stay_inside_their_own_scope(client, fake_ml01):
+    """Câu trả lời của mỗi chip ML chỉ nói trong phạm vi của model ấy.
+
+    Đây là bản dựng sẵn (LLM tắt trong file này) — cùng ranh giới với context
+    LLM ở `hfml.llm.context`. ML01 nói về sức khỏe tài chính hộ, không có dòng
+    "Khả năng vay"; ML02 nói về khoản vay đang xét, không có dòng tiền, sức
+    khỏe tài chính hay đánh giá tổng quan — những thứ người bấm chip ML02 đọc
+    xong tưởng nhận nhầm kết quả của ML01.
+    """
+    fake_ml01(proba=(0.05, 0.80, 0.05, 0.10))
+    health = ask(client, "Chẩn đoán sức khỏe tài chính",
+                 intent_code="FINANCIAL_HEALTH_DIAGNOSIS",
+                 ml_features=ML_FEATURES)["response_text"]
+    assert "Sức khỏe tài chính" in health
+    # Hạn mức vay (RB05) và màn khai khoản vay là chuyện của ML02. Lời khuyên
+    # "gộp các khoản vay nhỏ lẻ" trong nhóm xử lý nợ thì vẫn thuộc ML01 — nó
+    # nói về nợ đang có, không phải khoản vay đang xét.
+    assert "Khả năng vay" not in health
+    assert "Thông tin khoản vay" not in health
+
+    loan = ask(client, "Chẩn đoán rủi ro vay vốn",
+               intent_code="LOAN_RISK_DIAGNOSIS",
+               loan_application=LOAN_APPLICATION)["response_text"]
+    assert "Chẩn đoán rủi ro vay vốn" in loan
+    for outside in ("Đánh giá tổng quan", "Dòng tiền hằng tháng",
+                    "Sức khỏe tài chính"):
+        assert outside not in loan, outside
+
+
 def test_ml02_branch_still_asks_for_the_form_when_data_is_missing(client):
     """Thiếu dữ liệu vẫn phải hướng đi khai, KHÔNG chạy model trên số rỗng."""
     body = ask(client, "Chẩn đoán rủi ro vay vốn",
@@ -448,3 +476,100 @@ def test_ml01_branch_keeps_saying_which_model_answered(client, fake_ml01, llm_on
 
     assert body["model_used"].startswith("HFML-ML01/")
     assert "+LLM/" in body["model_used"]
+
+
+# ---------------------------------------------------------------------------
+# /predict-loan-risk — thẻ ML02 trên màn "Chẩn đoán hồ sơ"
+# ---------------------------------------------------------------------------
+def test_loan_risk_endpoint_mirrors_the_ml01_card_contract(client):
+    """Thẻ ML02 dùng cùng khuôn với thẻ ML01: MỘT nhãn + khối kỹ thuật riêng.
+
+    Xác suất trả về theo thứ tự cố định HIGH_RISK → LOW_RISK (xấu → tốt, như
+    thang của ML01) để thanh trên FE không đổi chỗ giữa hai lần gọi.
+    """
+    response = client.post("/predict-loan-risk",
+                           json={"household": HOUSEHOLD,
+                                 "loan_application": LOAN_APPLICATION})
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["prediction"] in {"LOW_RISK", "HIGH_RISK"}
+    assert body["prediction_vi"] in {"Rủi ro thấp", "Rủi ro cao"}
+    assert 0.0 <= body["risk_probability"] <= 1.0
+    assert body["model_version"].startswith("ml02_")
+
+    technical = body["model_confidence"]
+    assert 0.0 < technical["threshold"] < 0.5          # ngưỡng thật, không phải 0,5
+    assert isinstance(technical["low_confidence"], bool)
+    assert [p["label"] for p in technical["probabilities"]] == ["HIGH_RISK", "LOW_RISK"]
+    assert sum(p["probability"] for p in technical["probabilities"]) == pytest.approx(1.0)
+    assert technical["probabilities"][0]["probability"] == pytest.approx(body["risk_probability"])
+
+
+def test_loan_risk_endpoint_returns_422_without_a_loan(client):
+    """Chưa khai khoản vay là việc của người dùng (422), không phải service hỏng (503)."""
+    response = client.post("/predict-loan-risk", json={"household": HOUSEHOLD})
+    assert response.status_code == 422
+    assert "Thông tin khoản vay" in response.json()["detail"]
+
+
+def test_loan_risk_endpoint_returns_422_for_an_invalid_loan(client):
+    response = client.post("/predict-loan-risk",
+                           json={"household": HOUSEHOLD,
+                                 "loan_application": {**LOAN_APPLICATION, "loan_amount": -1}})
+    assert response.status_code == 422
+
+
+def test_loan_risk_endpoint_agrees_with_the_chat_branch(client):
+    """Thẻ và chip "Chẩn đoán rủi ro vay vốn" phải nói cùng một xác suất về
+    cùng một khoản vay — cả hai đi qua `analyze()`, không có đường quy đổi
+    thứ hai."""
+    card = client.post("/predict-loan-risk",
+                       json={"household": HOUSEHOLD,
+                             "loan_application": LOAN_APPLICATION}).json()
+    chat = ask(client, "Chẩn đoán rủi ro vay vốn",
+               intent_code="LOAN_RISK_DIAGNOSIS", loan_application=LOAN_APPLICATION)
+
+    from hfml.llm.presentation import percent
+    assert percent(card["risk_probability"]) in chat["response_text"]
+    assert card["prediction_vi"] in chat["response_text"]
+
+
+# ---------------------------------------------------------------------------
+# Tiêu đề của hai nhánh ML — cùng một dòng cho bản LLM và bản dựng sẵn
+# ---------------------------------------------------------------------------
+def test_ml_answers_open_with_the_model_label_whoever_wrote_them(client, fake_ml01, llm_online):
+    """Bản LLM và bản dựng sẵn của cùng nhánh phải cùng mở đầu bằng nhãn model.
+
+    Không có dòng chung thì bản LLM bắt đầu bằng một đoạn văn bất kỳ, và màn
+    Chatbot phải tự gắn nhãn chung chung "Kết quả đánh giá" thay vì tên chức
+    năng kèm kết luận. Nhãn lấy từ kết quả model, không nhờ LLM nhắc lại.
+    """
+    from hfml.llm.narrator import ml01_title, ml02_title
+
+    fake_ml01(proba=(0.05, 0.80, 0.05, 0.10))     # DEBT_FOCUS
+    health = ask(client, "Chẩn đoán sức khỏe tài chính",
+                 intent_code="FINANCIAL_HEALTH_DIAGNOSIS", ml_features=ML_FEATURES)
+    assert "+LLM/" in health["model_used"]
+    assert health["response_text"].startswith(ml01_title("Cần tập trung xử lý nợ"))
+
+    loan = ask(client, "Chẩn đoán rủi ro vay vốn",
+               intent_code="LOAN_RISK_DIAGNOSIS", loan_application=LOAN_APPLICATION)
+    assert "+LLM/" in loan["model_used"]
+    label_vi = client.post("/predict-loan-risk",
+                           json={"household": HOUSEHOLD,
+                                 "loan_application": LOAN_APPLICATION}).json()["prediction_vi"]
+    assert loan["response_text"].startswith(ml02_title(label_vi))
+
+
+def test_template_answers_do_not_repeat_the_title(client, fake_ml01):
+    """Bản dựng sẵn đã có tiêu đề — gắn thêm lần nữa là hai dòng giống nhau."""
+    fake_ml01(proba=(0.05, 0.80, 0.05, 0.10))
+    health = ask(client, "Chẩn đoán sức khỏe tài chính",
+                 intent_code="FINANCIAL_HEALTH_DIAGNOSIS", ml_features=ML_FEATURES)
+    assert health["model_used"].endswith("+Template")
+    assert health["response_text"].count("Chẩn đoán sức khỏe tài chính:") == 1
+
+    loan = ask(client, "Chẩn đoán rủi ro vay vốn",
+               intent_code="LOAN_RISK_DIAGNOSIS", loan_application=LOAN_APPLICATION)
+    assert loan["response_text"].count("Chẩn đoán rủi ro vay vốn:") == 1

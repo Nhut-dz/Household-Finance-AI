@@ -20,8 +20,10 @@ import pandas as pd
 import pytest
 
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
 
 from hfml.ml.evaluation.plots import (  # noqa: E402
+    ALGO_COLOR,
     SEQUENTIAL_STEPS,
     SERIES,
     generate_ml01_plots,
@@ -59,7 +61,7 @@ def runs(tmp_path):
     ]).to_csv(tmp_path / "model_comparison.csv", index=False)
 
     importance = []
-    for algo in ("decision_tree", "random_forest", "xgboost"):
+    for algo in ALGOS:
         for rank, feature in enumerate(
                 ["savings_amount", "monthly_debt_payment", "age",
                  "household_size", "has_debt"], start=1):
@@ -121,12 +123,36 @@ def test_plots_do_not_touch_the_saved_results(runs):
 # ------------------------------------------------------------ bảng màu
 
 def test_categorical_palette_matches_the_validated_set():
-    """Ba slot đã qua `validate_palette.js --pairs all` trên nền `#fcfcfb`.
+    """Bốn slot đã qua `validate_palette.js --pairs all` trên nền `#fcfcfb`.
 
     Đổi hex mà không chạy lại validator thì hình vẫn vẽ ra, chỉ có điều
-    người mù màu hết phân biệt được các series.
+    người mù màu hết phân biệt được các series. Slot 4 là violet, không phải
+    yellow của bảng gốc: yellow cạnh orange rớt sàn thị lực thường.
     """
-    assert SERIES == ("#2a78d6", "#eb6834", "#1baf7a")
+    assert SERIES == ("#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7")
+
+
+def test_every_algorithm_has_its_own_fixed_colour():
+    """Màu gắn theo thuật toán, không theo thứ tự xuất hiện trong CSV —
+    nếu không thì bỏ một model là ba model còn lại đổi màu hết."""
+    assert ALGO_COLOR == dict(zip(ALGOS, SERIES))
+    assert len(set(ALGO_COLOR.values())) == len(ALGOS), "hai model trùng màu"
+
+
+def test_importance_legend_lists_every_algorithm_in_task_order(runs, monkeypatch):
+    """Legend theo thứ tự task 7 → 10, không theo thứ tự chữ cái của pivot
+    (pandas xếp "bagging" trước "decision_tree")."""
+    captured: list[list[str]] = []
+    original = plt.Axes.legend
+
+    def spy(ax, *args, **kwargs):
+        legend = original(ax, *args, **kwargs)
+        captured.append([t.get_text() for t in legend.get_texts()])
+        return legend
+
+    monkeypatch.setattr(plt.Axes, "legend", spy)
+    plot_feature_importance(runs, top_n=5)
+    assert captured and captured[-1] == list(ALGOS)
 
 
 def test_sequential_ramp_is_single_hue_and_monotone():

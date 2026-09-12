@@ -208,7 +208,14 @@ def to_ml02_frame(
         "AMT_INCOME_TOTAL": annual_income,
         "AMT_CREDIT": _f(loan.loan_amount),
         "AMT_ANNUITY": _f(loan.monthly_payment) * MONTHS_PER_YEAR,
-        "CNT_CHILDREN": int(loan.children_count),
+        # Cả hai lấy từ HỒ SƠ HỘ, không từ form vay. Trước đây `CNT_CHILDREN`
+        # lấy ở `loan` còn `CNT_FAM_MEMBERS` lấy ở `profile` — hai form khác
+        # nhau cho hai cột phải nhất quán với nhau, nên hộ 2 người mà khai 4
+        # con là lọt được tới đây. Nay số con chỉ còn MỘT nguồn duy nhất, và
+        # `HouseholdProfile` đã tự bảo đảm `children_count < household_size`.
+        #
+        # Feature schema KHÔNG đổi — vẫn đúng hai cột đó, chỉ đổi nguồn đọc.
+        "CNT_CHILDREN": int(profile.children_count),
         "CNT_FAM_MEMBERS": float(profile.household_size),
         "DAYS_BIRTH": -loan.borrower_age * DAYS_PER_YEAR,
         "DAYS_EMPLOYED": -float(loan.employment_years) * DAYS_PER_YEAR,
