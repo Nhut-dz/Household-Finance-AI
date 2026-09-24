@@ -355,16 +355,13 @@ class AdvisorClient
             'monthly_debt_payment' => (float) $household->monthly_debt_payment,
             'has_savings' => $household->has_savings,
             'current_savings' => (float) $household->current_savings,
-<<<<<<< HEAD
-            'assets' => $household->assets->map(fn ($a) => (string) $a->getRawOriginal('asset_type'))->all(),
-=======
-            'assets' => $household->assets
+                        'assets' => $household->assets
                 ->map(fn ($a) => self::ASSET_TYPE_TO_PYTHON[(string) $a->getRawOriginal('asset_type')] ?? null)
                 ->filter()
                 ->unique()
                 ->values()
                 ->all(),
->>>>>>> main
+                
         ];
     }
 
