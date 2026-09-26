@@ -55,6 +55,12 @@ Route::prefix('households')->group(function () {
         ->whereNumber('id')
         ->name(ApiEnum::HOUSEHOLD_PREDICTION->routeName());
 
+    // Thẻ ML02 trên màn "Chẩn đoán hồ sơ" — cùng khuôn với /prediction (ML01),
+    // đọc bản ghi khoản vay của hộ; chưa khai thì 422 để FE hướng sang màn nhập.
+    Route::get('/{id}/loan-risk', [PredictionController::class, 'loanRisk'])
+        ->whereNumber('id')
+        ->name(ApiEnum::HOUSEHOLD_LOAN_RISK->routeName());
+
     /*
      * Màn "Thông tin khoản vay" — đầu vào của ML02. PUT thay vì POST vì một hộ
      * giữ đúng một phương án vay đang xét: gửi lại cùng body cho ra cùng trạng

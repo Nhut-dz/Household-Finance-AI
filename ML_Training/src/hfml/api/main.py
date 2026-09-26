@@ -14,9 +14,14 @@ from pydantic import BaseModel
 
 from hfml.api.intents import INTENT_LABELS, IntentCode, resolve_intent
 from hfml.api.schemas import (
+    ML02_ORDERED_LABELS,
     Ml01ModelConfidence,
     Ml01PredictRequest,
     Ml01PredictResponse,
+    Ml01Probability,
+    Ml02ModelConfidence,
+    Ml02PredictRequest,
+    Ml02PredictResponse,
     build_probabilities,
 )
 from hfml.config import CONFIG
@@ -25,7 +30,7 @@ from hfml.inference.lifecycle import MANAGER, ModelUnavailable
 from hfml.inference.payloads import normalize_payload
 from hfml.inference.settings import ML01, ML02, SETTINGS
 from hfml.llm import presentation
-from hfml.llm.narrator import explain_ml01, explain_ml02
+from hfml.llm.narrator import explain_ml01, explain_ml02, ml01_title, ml02_title
 from hfml.logger import get_logger
 from hfml.ml.ml01_recommendation.labeler import (
     LABELS_VI,
@@ -357,6 +362,71 @@ _NARRATED_SOURCES = frozenset({
     "llm_retry",
     "out_of_scope",
 })
+@app.post("/predict-loan-risk", response_model=Ml02PredictResponse)
+def predict_loan_risk(req: Ml02PredictRequest) -> Ml02PredictResponse:
+    """ML02 — rủi ro của khoản vay đang xét (F04), cho thẻ trên màn Chẩn đoán hồ sơ.
+
+    Đi cùng đường với chip "Chẩn đoán rủi ro vay vốn": `analyze()` rồi lấy
+    `analysis.ml02`. Không tự dựng frame ở đây — làm vậy là có hai đường quy
+    đổi cho cùng một model, và thẻ với chatbot có thể nói hai xác suất khác
+    nhau về cùng một khoản vay. Không gọi LLM, nên rẻ và không tốn quota.
+
+    Mã trạng thái nói đúng loại lỗi, như `/predict`:
+        422  thiếu hoặc sai dữ liệu khoản vay — việc của người dùng, FE hướng
+             sang màn nhập
+        503  chưa có artifact ML02 — lỗi triển khai
+        500  model chạy lỗi
+    """
+    if not req.loan_application:
+        raise HTTPException(
+            status_code=422,
+            detail="Chưa có thông tin khoản vay — cần màn 'Thông tin khoản vay'.")
+
+    result = inference_engine.analyze(
+        normalize_payload(req.household, req.loan_application)).to_dict()
+    ml02 = (result.get("analysis") or {}).get("ml02") or {}
+
+    if not ml02.get("available"):
+        errors = "; ".join(e.get("message", "") for e in result.get("errors") or [])
+        detail = ml02.get("error") or errors or "Chưa đánh giá được khoản vay."
+        reason = ml02.get("reason_code")
+        if reason == "missing_input" or (reason is None and errors):
+            status = 422
+        elif reason == "model_unavailable":
+            status = 503
+        else:
+            status = 500
+        raise HTTPException(status_code=status, detail=detail)
+
+    confidence = ml02.get("confidence") or {}
+    by_label = {p["label"]: p for p in ml02.get("probabilities") or []}
+
+    return Ml02PredictResponse(
+        prediction=str(ml02["label"]),
+        prediction_vi=str(ml02["label_vi"]),
+        risk_probability=float(ml02["probability"]),
+        model_confidence=Ml02ModelConfidence(
+            confidence=float(confidence.get("confidence", 0.0)),
+            low_confidence=bool(confidence.get("low_confidence", False)),
+            threshold=float(confidence.get("threshold", 0.0)),
+            description=str(confidence.get("description", "")),
+            probabilities=[
+                Ml01Probability(label=name,
+                                label_vi=str(by_label[name]["label_vi"]),
+                                probability=float(by_label[name]["probability"]))
+                for name in ML02_ORDERED_LABELS if name in by_label
+            ],
+        ),
+        model_version=str(ml02.get("model_version") or SETTINGS.ml02_slug),
+    )
+
+
+#: Nguồn câu trả lời được coi là "LLM đã diễn giải xong".
+#:
+#: `out_of_scope` nằm trong danh sách dù không hề gọi LLM: đó là câu từ chối
+#: cố định, đã là tiếng Việt hoàn chỉnh, và thay nó bằng bản dựng sẵn của rule
+#: thì hoá ra lại đi trả lời một câu hỏi vừa từ chối.
+_NARRATED_SOURCES: frozenset[str] = frozenset({"llm", "llm_retry", "out_of_scope"})
 
 
 def _narrate(
@@ -569,9 +639,21 @@ def _ml01_from_features(
     }
 
 
-# =========================================================
-# ML01 FINANCIAL HEALTH
-# =========================================================
+def _with_title(text: str, title: str) -> str:
+    """Mở đầu câu trả lời của một nhánh ML bằng dòng tiêu đề mang nhãn model.
+
+    Bản dựng sẵn (`explain_ml01/ml02`) đã có sẵn dòng này; bản do LLM viết thì
+    không — nó chỉ diễn giải, và nhãn không phải thứ nhờ LLM nhắc lại. Không có
+    dòng chung thì hai bản của cùng một nhánh mở đầu khác nhau, và màn Chatbot
+    phải tự gắn một nhãn chung chung ("Kết quả đánh giá") cho bản LLM.
+    """
+    if text.startswith(title):
+        return text
+    return f"{title}\n\n{text}"
+
+
+def _advise_financial_health(req: AdviseRequest, rule_summary: str) -> AdviseResponse:
+    """Nhánh `FINANCIAL_HEALTH_DIAGNOSIS` — dữ liệu hộ → ML01 → LLM giải thích.
 
 def _advise_financial_health(
     req: AdviseRequest,
@@ -706,6 +788,8 @@ def _advise_financial_health(
         fallback,
     )
 
+        req, IntentCode.FINANCIAL_HEALTH_DIAGNOSIS, fallback)
+    text = _with_title(text, ml01_title(result["label_vi"]))
 
     return AdviseResponse(
 
@@ -744,6 +828,15 @@ def _advise_loan_risk(
     req: AdviseRequest,
 ) -> AdviseResponse:
 
+        1. Chưa khai thông tin khoản vay → hướng người dùng sang màn nhập.
+           ML02 cần 15 trường của màn đó; chạy trên số rỗng thì vẫn ra một xác
+           suất, và đó là con số vô nghĩa mà không có gì báo hiệu.
+        2. Chưa có artifact ML02 → nói thẳng là đang hoàn thiện.
+
+    Cửa 2 hiện LUÔN đóng: F04 mới xong task 1/15. Viết sẵn đường đi để khi
+    task 15 export artifact thì nhánh này tự sống, FE và backend không phải
+    sửa lại lần nữa.
+    """
     if not req.loan_application:
 
         return AdviseResponse(
@@ -1735,6 +1828,32 @@ def advise(
 
         f"Tài sản: {asset_desc}.\n"
 
+    # Tóm tắt tầng rule, dùng lại cho cả câu trả lời thường lẫn phần diễn giải
+    # của ML01 — hai nơi nói khác nhau về cùng một hồ sơ là chuyện phải tránh.
+    #
+    # Mã rule và mã trạng thái KHÔNG xuất hiện ở đây nữa. Chuỗi này là nguồn
+    # trực tiếp của những dòng `(RB01) … (DEFICIT)` mà người dùng đọc phải: nó
+    # đi thẳng vào `response_text` và trước đây không có bước nào đứng giữa.
+    #
+    # Nhân đây sửa luôn một chỗ nói sai: bản cũ viết cứng "Dư thừa khoảng
+    # {net_cashflow}" cho mọi hồ sơ, nên hộ đang âm dòng tiền vẫn được báo là
+    # "dư thừa khoảng -2.000.000 VNĐ (DEFICIT)". Câu đó tự mâu thuẫn, và phần
+    # duy nhất nói đúng lại chính là mã đang phải bỏ đi.
+    # Nói bằng chữ, không kèm mã trạng thái trong ngoặc.
+    #
+    # "Dư khoảng 3.000.000đ" đã nói đúng thứ mà `(POSITIVE)` nói, nên thêm
+    # ngoặc vào chỉ là lặp lại chính mình bằng một thứ tiếng khó hơn.
+    cashflow_word = ("Dư khoảng" if net_cashflow > 0
+                     else "Thiếu khoảng" if net_cashflow < 0
+                     else "Vừa đủ, không dư không thiếu —")
+    emergency = f"{emerg_months:.1f}".replace(".", ",")
+    household_lines = [
+        f"📌 Đánh giá tổng quan: "
+        f"{presentation.label_status('OVERALL', overall_status)}",
+        f"• Dòng tiền hằng tháng: {cashflow_word} "
+        f"{presentation.money(abs(net_cashflow))}.",
+        f"• Nợ, tiết kiệm & tài sản: Nợ {debt_desc} | Tiết kiệm {savings_desc} "
+        f"| Tài sản: {asset_desc}.",
         f"• Sức khỏe tài chính: "
 
         f"{presentation.label_status('RB02', rb02.get('status'))} "
@@ -1760,6 +1879,26 @@ def advise(
         f"({presentation.label_status('RB05', rb05.get('status'))})."
     )
 
+        f"(tỉ lệ trả nợ trên thu nhập {presentation.percent(dti)}, quỹ dự phòng "
+        f"{emergency}/{min_emerg_target:.0f} tháng, tỉ lệ tiết kiệm "
+        f"{presentation.percent(savings_rate)}).",
+    ]
+    loan_capacity_line = (
+        f"• Khả năng vay: có thể gánh thêm tối đa "
+        f"{presentation.money(max_add_payment)}/tháng "
+        f"({presentation.label_status('RB05', rb05.get('status'))}).")
+    rule_summary = "\n".join(household_lines + [loan_capacity_line])
+
+    # Hai nhánh ML trả về câu trả lời HOÀN CHỈNH và thoát sớm: chúng có cấu
+    # trúc riêng do tầng diễn đạt dựng, không phải một đoạn `advice_detail`
+    # ghép vào khung trả lời chung.
+    #
+    # ML01 nhận bản tóm tắt KHÔNG có dòng "Khả năng vay": câu trả lời của một
+    # chip ML phải nằm gọn trong phạm vi của model ấy, và hạn mức vay (RB05)
+    # thuộc chức năng khác. Cùng ranh giới với context của LLM ở
+    # `hfml.llm.context` — bản dựng sẵn và bản LLM phải kể cùng một chuyện.
+    if intent is IntentCode.FINANCIAL_HEALTH_DIAGNOSIS:
+        return _advise_financial_health(req, "\n".join(household_lines))
 
     # =====================================================
     # ML01

@@ -10,35 +10,41 @@ import {
 import {
   EDUCATION_LABELS,
   GENDER_LABELS,
+  INTEREST_RATE_MAX,
+  INTEREST_RATE_MIN,
   LOAN_PURPOSE_LABELS,
   LOAN_TERM_CHOICES,
   MARITAL_STATUS_LABELS,
   OCCUPATION_LABELS,
   emptyLoanForm,
+  interestRateError,
   loanTermLabel,
-  minimumMonthlyPayment,
+  monthlyPayment,
+  paymentDriversUnchanged,
   toOptions,
   type LoanApplicationForm,
+  type SavedPayment,
 } from '../data/loan'
 import type { PageKey } from '../data/profile'
-import { currency } from '../lib/format'
 import {
   deleteLoanApplication,
   fromLoanApplicationResponse,
   getLoanApplication,
   saveLoanApplication,
+  savedPaymentOf,
 } from '../api/loanApplication'
 import { deleteConversations } from '../api/messages'
 import { ApiError, type FieldErrors } from '../lib/api'
 import ConfirmDialog from '../components/ConfirmDialog'
 import {
+  DecimalField,
   Field,
   MoneyField,
   NumberField,
+  ReadOnlyMoney,
   Section,
   Segmented,
   Select,
-  Stepper,
 } from '../components/FormControls'
 
 const GENDER_OPTIONS = toOptions(GENDER_LABELS)
@@ -57,9 +63,9 @@ const OUT_OF_WORKFORCE = new Set(['retired', 'unemployed'])
 /**
  * Màn "Thông tin khoản vay" — dữ liệu đầu vào của ML02 (Home Credit Risk).
  *
- * Tách khỏi màn "Nhập thông tin" chứ không nối thêm vào đó: 16 ô này chỉ có ý
+ * Tách khỏi màn "Nhập thông tin" chứ không nối thêm vào đó: 15 ô này chỉ có ý
  * nghĩa với người đang tính vay, mà phần lớn người dùng chỉ muốn xem sức khoẻ
- * tài chính. Bắt tất cả nhập thêm 16 ô cho một tính năng họ không dùng là đổi
+ * tài chính. Bắt tất cả nhập thêm 15 ô cho một tính năng họ không dùng là đổi
  * một lượng lớn người bỏ dở lấy một tính năng thiểu số.
  *
  * Phương án vay gắn với một hồ sơ hộ gia đình (endpoint nằm dưới
@@ -87,6 +93,13 @@ export default function LoanFormPage({
   onConversationCleared: () => void
 }) {
   const [form, setForm] = useState<LoanApplicationForm>(emptyLoanForm)
+  /**
+   * Khoản trả hàng tháng của bản ghi ĐÃ LƯU, `null` khi hộ chưa khai lần nào.
+   *
+   * Không nằm trong `form` vì nó không phải thứ người dùng sửa — nó là ảnh chụp
+   * của server, chỉ đổi khi nạp lại hoặc lưu thành công.
+   */
+  const [savedPayment, setSavedPayment] = useState<SavedPayment | null>(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -109,18 +122,34 @@ export default function LoanFormPage({
   useEffect(() => {
     if (householdId === null) {
       setForm(emptyLoanForm)
+      setSavedPayment(null)
       return
     }
 
     setLoading(true)
     getLoanApplication(householdId)
-      .then((data) => setForm(fromLoanApplicationResponse(data)))
-      .catch(() => setForm(emptyLoanForm))
+      .then((data) => {
+        setForm(fromLoanApplicationResponse(data))
+        setSavedPayment(savedPaymentOf(data))
+      })
+      .catch(() => {
+        setForm(emptyLoanForm)
+        setSavedPayment(null)
+      })
       .finally(() => setLoading(false))
   }, [householdId])
 
   const handleSubmit = async () => {
     if (householdId === null) return
+
+    // Chặn tại chỗ thay vì để backend trả 422: lỗi lãi suất đã hiện ngay dưới
+    // ô từ lúc gõ, nên một vòng gọi API chỉ để nghe lại đúng câu đó là thừa.
+    if (rateError !== null) {
+      setFormError('Vui lòng sửa lãi suất trước khi lưu.')
+      setFieldErrors({ interest_rate: [rateError] })
+
+      return
+    }
 
     setSubmitting(true)
     setFormError(null)
@@ -129,6 +158,7 @@ export default function LoanFormPage({
     try {
       const data = await saveLoanApplication(householdId, form)
       setForm(fromLoanApplicationResponse(data))
+      setSavedPayment(savedPaymentOf(data))
       setSaved(true)
       onSaved()
     } catch (error) {
@@ -177,6 +207,7 @@ export default function LoanFormPage({
       await deleteConversations(householdId)
 
       setForm(emptyLoanForm)
+      setSavedPayment(null)
       setFieldErrors({})
       setSaved(false)
       setConfirmingClear(false)
@@ -227,10 +258,52 @@ export default function LoanFormPage({
     )
   }
 
-  const minimumPayment = minimumMonthlyPayment(
+  /**
+   * Lãi suất sai thì KHÔNG hiện EMI tính từ nó.
+   *
+   * Cách dễ hơn là bỏ qua lãi suất sai rồi hiện con số chỉ có gốc — nhưng như
+   * thế người dùng gõ 12% và vẫn thấy một khoản trả hàng tháng trông hợp lý,
+   * chỉ là của một khoản vay khác. Thà để trống và nói rõ vì sao.
+   */
+  const rateError = interestRateError(form.interest_rate)
+
+  /**
+   * Chưa động vào ba trường quyết định EMI thì HIỆN LẠI số đã lưu, không hiện
+   * số tự tính.
+   *
+   * Đây là mặt trước của luật mà `LoanApplicationService` áp dụng khi lưu.
+   * Những bản ghi lập trước khi có trường lãi suất mang một khoản trả hàng
+   * tháng do người dùng tự gõ; backend cố ý giữ nguyên nó, nên form cũng phải
+   * hiện đúng nó. Hiện số tự tính ở đây là nói dối về thứ đang nằm trong DB.
+   */
+  const keepingSavedPayment = paymentDriversUnchanged(savedPayment, form)
+  const computedPayment = monthlyPayment(
     form.loan_amount,
     form.loan_term_months,
+    form.interest_rate,
   )
+
+  const estimatedPayment = rateError
+    ? 0
+    : keepingSavedPayment
+      ? savedPayment.monthly_payment
+      : computedPayment
+
+  /**
+   * Chỉ nói "giữ nguyên số đã lưu" khi con số đó THỰC SỰ khác với công thức —
+   * bằng nhau thì câu đó chỉ làm người đọc phân vân không rõ mình bỏ lỡ gì.
+   */
+  const showingLegacyPayment =
+    keepingSavedPayment && savedPayment.monthly_payment !== computedPayment
+
+  const paymentNote = rateError
+    ? 'Nhập lãi suất hợp lệ để tính được khoản trả hàng tháng.'
+    : showingLegacyPayment
+      ? 'Giữ nguyên số đã lưu trước đây. Sửa số tiền vay, thời hạn vay hoặc lãi suất để hệ thống tính lại.'
+      : form.interest_rate === null
+        ? 'Khoản trả hiện tại chỉ bao gồm tiền gốc, chưa bao gồm lãi suất.'
+        : 'Được tự động tính dựa trên số tiền vay, thời hạn vay và lãi suất.'
+
   const ltv =
     form.loan_amount > 0 && form.asset_price > 0
       ? form.loan_amount / form.asset_price
@@ -359,14 +432,6 @@ export default function LoanFormPage({
             />
           </Field>
 
-          <Field label="Số con" error={errorOf('children_count')}>
-            <Stepper
-              value={form.children_count}
-              max={20}
-              onChange={(children_count) => patch({ children_count })}
-            />
-          </Field>
-
           <Field label="Trình độ học vấn" error={errorOf('education_level')}>
             <Select
               value={form.education_level}
@@ -421,16 +486,22 @@ export default function LoanFormPage({
             />
           </Field>
 
-          <MoneyField
-            label="Khoản trả hàng tháng"
-            value={form.monthly_payment}
-            onChange={(monthly_payment) => patch({ monthly_payment })}
-            error={errorOf('monthly_payment')}
-            hint={
-              minimumPayment > 0
-                ? `Tối thiểu ${currency(minimumPayment)} mới trả hết gốc, chưa tính lãi.`
-                : undefined
-            }
+          <DecimalField
+            label="Lãi suất"
+            value={form.interest_rate}
+            onChange={(interest_rate) => patch({ interest_rate })}
+            // Lỗi tự kiểm ở FE được ưu tiên: nó hiện ngay lúc gõ, còn lỗi
+            // backend chỉ tới sau khi bấm Lưu.
+            error={rateError ?? errorOf('interest_rate')}
+            hint={`Không bắt buộc. Chưa biết thì để trống. Nếu nhập, giá trị phải từ ${INTEREST_RATE_MIN}% đến ${INTEREST_RATE_MAX}%/năm.`}
+            placeholder="Ví dụ: 8.5"
+            unit="%/năm"
+          />
+
+          <ReadOnlyMoney
+            label="Khoản trả hàng tháng dự kiến (EMI)"
+            value={estimatedPayment}
+            note={paymentNote}
             suffix=" / tháng"
           />
 

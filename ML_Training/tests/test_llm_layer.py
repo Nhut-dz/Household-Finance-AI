@@ -177,11 +177,50 @@ class TestContext:
         assert ctx.ml01.get("available") is True
         assert ctx.ml02 == {}
 
-    def test_rb01_rb02_luon_co_mat(self, result):
+    def test_rb01_rb02_lam_nen_cho_intent_thuong(self, result):
+        u = understand("Tôi nên đầu tư thế nào?", result, IntentCode.INVESTMENT.value)
+        ctx = build_context("Tôi nên đầu tư thế nào?", result, u)
+        assert {"RB01", "RB02"} <= set(ctx.rules)
+
+    def test_context_ml02_chi_nam_trong_pham_vi_khoan_vay(self, result):
+        """Chip "Chẩn đoán rủi ro vay vốn" không được thấy sức khỏe tài chính hộ.
+
+        Test này TỪNG khẳng định điều ngược lại (RB01/RB02 "luôn có mặt"). Hệ
+        quả đo được 12/09/2026: hồ sơ DTI 60% → RB02 "cần xử lý ngay", ML02
+        "rủi ro thấp 98%", và LLM mở đầu bằng câu của RB02 — người bấm chip
+        ML02 tưởng nhận nhầm kết quả của ML01. Không cho nhìn thấy chắc hơn
+        cấm trong prompt.
+        """
         u = understand("Rủi ro khoản vay?", result,
                        IntentCode.LOAN_RISK_DIAGNOSIS.value)
         ctx = build_context("Rủi ro khoản vay?", result, u)
-        assert {"RB01", "RB02"} <= set(ctx.rules)
+
+        assert set(ctx.rules) == {"RB05"}
+        assert ctx.overall_status is None and ctx.overall_status_vi == ""
+        assert ctx.ml02.get("available") is True and ctx.ml01 == {}
+        # Bảng số theo context đã lọc: không còn con số nào của RB01/RB02.
+        assert not any(k.startswith(("rules.RB01", "rules.RB02"))
+                       for k in ctx.numeric_facts)
+
+    def test_context_ml01_khong_mang_canh_bao_cua_ml02(self, result):
+        """Cảnh báo "chưa có thông tin khoản vay" là của ML02, không được lọt
+        vào lượt ML01 — prompt bắt LLM nói ra mọi cảnh báo, và câu trả lời
+        sức khỏe tài chính sẽ kết thúc bằng "Cần bổ sung: thông tin khoản vay".
+        """
+        result = {**result, "warnings": [
+            {"field": "ml02", "code": "missing_input", "severity": "warning",
+             "message": "Chưa có thông tin khoản vay."},
+            {"field": "monthly_income", "code": "outlier", "severity": "warning",
+             "message": "Thu nhập cao bất thường."},
+        ]}
+        health = understand("Sức khỏe?", result,
+                            IntentCode.FINANCIAL_HEALTH_DIAGNOSIS.value)
+        ctx = build_context("Sức khỏe?", result, health)
+        assert [w["field"] for w in ctx.warnings] == ["monthly_income"]
+
+        loan = understand("Rủi ro vay?", result, IntentCode.LOAN_RISK_DIAGNOSIS.value)
+        ctx = build_context("Rủi ro vay?", result, loan)
+        assert {w["field"] for w in ctx.warnings} == {"ml02", "monthly_income"}
 
     def test_numeric_facts_gom_tu_context_da_loc(self, ai_context):
         """Bảng số phải gom từ context ĐÃ LỌC, không phải từ AiResult đầy đủ.
@@ -233,6 +272,26 @@ class TestPrompts:
     def test_prompt_co_phien_ban(self):
         """Prompt phải đánh phiên bản để về sau còn truy được câu trả lời cũ."""
         assert prompts.PROMPT_VERSION
+
+    def test_moi_intent_deu_co_trong_tam(self):
+        """Thêm intent mà quên khai trọng tâm thì LLM tự chọn thứ để mở đầu —
+        đúng lỗi mà mục này sinh ra để chặn."""
+        assert {i.value for i in IntentCode} <= set(prompts.INTENT_FOCUS)
+
+    def test_prompt_neu_trong_tam_dung_intent(self, ai_context, loan_context):
+        """Mục TRỌNG TÂM phải nói về đúng chức năng người dùng đã chọn.
+
+        Bản v2 chỉ ghi "CHỦ ĐỀ: Vay vốn" rồi đổ dữ liệu; gặp hồ sơ mà quy tắc
+        và ML02 trái chiều, model mở đầu bằng kết luận sức khỏe tài chính.
+        """
+        health = prompts.render_user_prompt(ai_context, "Sức khỏe tài chính")
+        assert "TRỌNG TÂM CỦA LƯỢT NÀY" in health
+        assert "Chẩn đoán sức khỏe tài chính" in health
+        assert "KHÔNG nhắc tới khoản vay" in health
+
+        loan = prompts.render_user_prompt(loan_context, "Vay vốn")
+        assert "Chẩn đoán rủi ro vay vốn" in loan
+        assert "KHÔNG đánh giá sức khỏe tài chính chung" in loan
 
 
 # ==========================================================================
@@ -407,6 +466,67 @@ class TestGuardrails:
 
         guardrails.apply(ai_context)
         assert "profile.household_id" not in ai_context.numeric_facts
+
+
+# ==========================================================================
+# Cấu hình lượt gọi Gemini — không gọi mạng
+# ==========================================================================
+class TestCallConfig:
+    """`thinking_level` là núm vặn độ trễ; `504` phải được nhận ra là quá giờ.
+
+    Cả hai đều nằm trong `_call`, nơi mọi test khác monkeypatch bỏ đi — nên
+    phải kiểm riêng, nếu không một khoá config gõ sai sẽ chỉ lộ ra khi gọi
+    thật và tốn quota.
+    """
+
+    def test_thinking_level_tu_config(self, monkeypatch):
+        from hfml.config import CONFIG
+        monkeypatch.setitem(CONFIG.llm, "thinking_level", "low")
+        monkeypatch.delitem(CONFIG.llm, "thinking_budget", raising=False)
+
+        cfg = client._thinking_config()
+        assert cfg is not None
+        assert cfg.thinking_level.name == "LOW"
+        assert cfg.thinking_budget is None
+
+    def test_thinking_budget_cho_model_doi_cu(self, monkeypatch):
+        from hfml.config import CONFIG
+        monkeypatch.delitem(CONFIG.llm, "thinking_level", raising=False)
+        monkeypatch.setitem(CONFIG.llm, "thinking_budget", 0)
+
+        cfg = client._thinking_config()
+        assert cfg is not None
+        assert cfg.thinking_budget == 0
+        assert cfg.thinking_level is None
+
+    def test_khong_dat_thi_de_model_mac_dinh(self, monkeypatch):
+        from hfml.config import CONFIG
+        monkeypatch.delitem(CONFIG.llm, "thinking_level", raising=False)
+        monkeypatch.delitem(CONFIG.llm, "thinking_budget", raising=False)
+        assert client._thinking_config() is None
+
+    def test_muc_suy_luan_sai_thi_bao_ngay(self, monkeypatch):
+        """Gõ nhầm `thinking_level: lo` phải nổ lúc nạp, không phải lúc gọi."""
+        from hfml.config import CONFIG
+        monkeypatch.setitem(CONFIG.llm, "thinking_level", "lo")
+        with pytest.raises(ValueError):
+            client._thinking_config()
+
+    def test_nhan_ra_504_la_qua_gio(self):
+        class ServerError(Exception):
+            code = 504
+
+        assert client._is_deadline_exceeded(ServerError("504 DEADLINE_EXCEEDED"))
+        assert client._is_deadline_exceeded(
+            RuntimeError("{'status': 'DEADLINE_EXCEEDED'}"))
+        assert not client._is_deadline_exceeded(
+            RuntimeError("429 RESOURCE_EXHAUSTED"))
+
+    def test_ngan_sach_nam_duoi_thoi_gian_laravel_cho(self):
+        """`budget_seconds` là xấu nhất cả lượt sinh; Laravel bỏ chờ sau
+        PYTHON_ADVISOR_TIMEOUT (45s). Vượt là câu trả lời về tới nơi không
+        còn ai nhận."""
+        assert client._timeout_seconds() < client._budget_seconds() < 45
 
 
 # ==========================================================================

@@ -259,6 +259,10 @@ def normalize_input(payload: dict[str, Any]) -> NormalizedInput:
                  for i in _issues_from_pydantic(exc, prefix="loan_application.")])
             log.warning("Thông tin khoản vay không hợp lệ — bỏ qua ML02.")
 
+    # KHÔNG còn luật liên form nào ở đây. Từng có một luật đối chiếu số con
+    # giữa hai form, nhưng nó chỉ cần thiết khi `children_count` có hai nguồn.
+    # Nay form vay không hỏi số con nữa (`LoanApplication` bỏ trường này), nên
+    # không còn gì để mâu thuẫn — sửa tận gốc thay vì canh hậu quả.
     return result
 
 

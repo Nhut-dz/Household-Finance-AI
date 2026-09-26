@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from hfml.api.intents import IntentCode
+from hfml.api.intents import ML_INTENTS, IntentCode
 from hfml.llm.understanding import REQUIREMENTS, Understanding
 from hfml.logger import get_logger
 
@@ -182,9 +182,20 @@ def build_numeric_facts(context: AiContext) -> dict[str, float]:
 def _relevant_rules(result: dict, intent: IntentCode) -> dict:
     """Chỉ các rule mà intent này cần, cộng RB01 và RB02 làm nền.
 
-    RB01 (dòng tiền) và RB02 (sức khỏe) luôn có mặt vì gần như mọi lời khuyên
-    tài chính đều phải đặt trên hai con số đó — nói "nên tiết kiệm thêm" mà
-    không biết hộ còn dư bao nhiêu là lời khuyên rỗng.
+    RB01 (dòng tiền) và RB02 (sức khỏe) có mặt ở mọi intent thường vì gần như
+    mọi lời khuyên tài chính đều phải đặt trên hai con số đó — nói "nên tiết
+    kiệm thêm" mà không biết hộ còn dư bao nhiêu là lời khuyên rỗng.
+
+    Hai intent ML thì KHÔNG nhận phần nền đó
+    -----------------------------------------
+    Câu trả lời của một chip ML phải nằm gọn trong phạm vi của model ấy. Đưa
+    RB01/RB02 vào context của "Chẩn đoán rủi ro vay vốn" là mời LLM mở đầu
+    bằng sức khỏe tài chính của hộ — đúng thứ đã xảy ra (12/09/2026): hồ sơ có
+    DTI 60% nên RB02 "cần xử lý ngay", ML02 lại ước lượng "rủi ro thấp 98%",
+    và model chọn câu của RB02 làm câu đầu; người bấm chip ML02 đọc xong tưởng
+    nhận nhầm kết quả của chip ML01. Cấm trong prompt không đủ chắc bằng không
+    cho nhìn thấy. ML01 vẫn có RB01/RB02 — nhưng vì `REQUIREMENTS` của nó tự
+    khai (cùng phạm vi: sức khỏe tài chính hộ), không phải vì phần nền này.
 
     Mỗi rule được gắn thêm `name_vi` và `status_vi` — tên nghiệp vụ và trạng
     thái đã dịch. Prompt cấm LLM chép lại mã nội bộ, nhưng cấm không thôi thì
@@ -198,7 +209,7 @@ def _relevant_rules(result: dict, intent: IntentCode) -> dict:
     """
     from hfml.llm import presentation
 
-    wanted = {"RB01", "RB02"}
+    wanted = set() if intent in ML_INTENTS else {"RB01", "RB02"}
     for requirement in REQUIREMENTS.get(intent, ()):
         if requirement.path.startswith("rules."):
             wanted.add(requirement.path.split(".", 1)[1])
@@ -243,21 +254,26 @@ def build_context(
     from hfml.llm import presentation
 
     intent = understanding.intent
+    rules = _relevant_rules(result, intent)
+
+    # `overall_status` gộp cả năm rule về hộ. Nó chỉ có nghĩa khi sức khỏe
+    # tài chính hộ (RB02) nằm trong phạm vi lượt này; với "Chẩn đoán rủi ro
+    # vay vốn" thì đó là kết luận của chức năng khác và LLM sẽ mở đầu bằng nó.
+    overall = result.get("overall_status") if "RB02" in rules else None
 
     context = AiContext(
         question=question,
         intent=intent.value,
         topic=understanding.topic,
-        overall_status=result.get("overall_status"),
-        overall_status_vi=presentation.label_status(
-            "OVERALL", result.get("overall_status")),
+        overall_status=overall,
+        overall_status_vi=presentation.label_status("OVERALL", overall) if overall else "",
         profile=result.get("input_summary") or {},
-        rules=_relevant_rules(result, intent),
+        rules=rules,
         # Chỉ đưa phần ML mà intent thật sự cần. Hỏi về ngân sách mà context
         # có xác suất vỡ nợ thì câu trả lời dễ lôi thứ không ai hỏi vào.
         ml01=(result.get("ml01") or {}) if _needs(intent, "ml01") else {},
         ml02=(result.get("ml02") or {}) if _needs(intent, "ml02") else {},
-        warnings=result.get("warnings") or [],
+        warnings=_relevant_warnings(result, intent, rules),
         errors=result.get("errors") or [],
         history=_trim_history(history),
     )
@@ -272,3 +288,24 @@ def _needs(intent: IntentCode, part: str) -> bool:
     """Intent này có cần phần ML đó không."""
     return any(r.path.split(".")[0] == part
                for r in REQUIREMENTS.get(intent, ()))
+
+
+def _relevant_warnings(result: dict, intent: IntentCode, rules: dict) -> list[dict]:
+    """Chỉ cảnh báo về phần dữ liệu CÓ MẶT trong context này.
+
+    Prompt bắt LLM phải nói ra mọi cảnh báo được cấp. Cảnh báo `ml02:
+    missing_input` ("Chưa có thông tin khoản vay") mà lọt vào lượt "Chẩn đoán
+    sức khỏe tài chính" thì câu trả lời của ML01 kết thúc bằng mục "Cần bổ
+    sung: thông tin khoản vay" — một yêu cầu không liên quan gì tới thứ vừa
+    được hỏi. Cảnh báo về chất lượng dữ liệu đầu vào (không gắn model/rule
+    nào) thì giữ nguyên: chúng nói về con số mà mọi lượt đều dùng.
+    """
+    kept = []
+    for warning in result.get("warnings") or []:
+        field = str(warning.get("field") or "")
+        if field in ("ml01", "ml02") and not _needs(intent, field):
+            continue
+        if field.startswith("RB") and field not in rules:
+            continue
+        kept.append(warning)
+    return kept

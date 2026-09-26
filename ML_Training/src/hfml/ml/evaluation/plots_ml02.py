@@ -54,17 +54,13 @@ trong bài toán này.
 
 Màu
 ---
-`SERIES` của ML01 chỉ có 3 slot, mà ML02 có 4 thuật toán. Slot 4 của bảng màu
-gốc là yellow — KHÔNG dùng được: đặt cạnh orange thì rớt sàn thị lực thường
-(ΔE 13,7 < 15) ở chế độ `--pairs all`. Đã chạy validator trên cả bốn ứng viên
-còn lại và chốt violet:
+Bảng màu 4 slot (`SERIES`), thứ tự thuật toán (`ALGO_ORDER`) và ánh xạ
+thuật toán → màu (`ALGO_COLOR`) dùng CHUNG với ML01, định nghĩa ở `plots.py`
+— lý do chọn violet cho slot 4 và lệnh validator nằm ở đó.
 
-    node scripts/validate_palette.js "#2a78d6,#eb6834,#1baf7a,#4a3aa7"
-         --mode light --surface "#fcfcfb" --pairs all
-    → ALL CHECKS PASS (CVD ΔE 9,2 · thị lực thường ΔE 16,3)
-
-Dùng `--pairs all` chứ không phải pairlist kề nhau vì các đường PR/ROC CẮT
-NHAU: cặp nào cũng có thể thành cặp phải phân biệt, không chỉ cặp đứng cạnh.
+Palette được validate bằng `--pairs all` chứ không phải pairlist kề nhau vì
+các đường PR/ROC CẮT NHAU: cặp nào cũng có thể thành cặp phải phân biệt,
+không chỉ cặp đứng cạnh.
 
 Aqua và violet có contrast dưới 3:1 trên nền `#fcfcfb`, nên theo *relief rule*
 phải kèm nhãn hiện hoặc table view — table view chính là các file CSV nằm
@@ -97,6 +93,8 @@ from hfml.logger import get_logger  # noqa: E402
 # số màu sang file thứ hai là cách chắc chắn để hai bản trôi khỏi nhau — đúng
 # lỗi mà chính docstring của `plots.py` cảnh báo.
 from hfml.ml.evaluation.plots import (  # noqa: E402
+    ALGO_COLOR,
+    ALGO_ORDER,
     AXIS,
     BLUES,
     DPI,
@@ -104,6 +102,7 @@ from hfml.ml.evaluation.plots import (  # noqa: E402
     INK,
     INK_SECONDARY,
     MUTED,
+    SERIES,
     SURFACE,
     _figure,
     _style,
@@ -111,16 +110,9 @@ from hfml.ml.evaluation.plots import (  # noqa: E402
 
 log = get_logger(__name__)
 
-#: 4 slot categorical, đã qua `validate_palette.js --pairs all` (xem docstring).
-SERIES_ML02: Final[tuple[str, ...]] = ("#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7")
-
-#: Thứ tự thuật toán theo task 7 → 10. Quyết định cả màu lẫn thứ tự legend.
-ALGO_ORDER: Final[tuple[str, ...]] = (
-    "decision_tree", "bagging", "random_forest", "xgboost")
-
-#: Thuật toán → màu, CỐ ĐỊNH. Không sinh theo vòng lặp trên dữ liệu đang vẽ:
-#: làm vậy thì bỏ một model khỏi bảng là ba model còn lại đổi màu hết.
-ALGO_COLOR: Final[dict[str, str]] = dict(zip(ALGO_ORDER, SERIES_ML02))
+#: Cùng bảng màu 4 slot với ML01 (`plots.SERIES`); giữ tên cũ để chỗ gọi và
+#: test không đổi.
+SERIES_ML02: Final[tuple[str, ...]] = SERIES
 
 #: Tên hiển thị — `decision_tree` trong hình đọc gãy hơn `Decision Tree`.
 ALGO_LABEL: Final[dict[str, str]] = {

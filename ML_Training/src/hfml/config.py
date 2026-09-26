@@ -104,10 +104,13 @@ class Config:
         "model": "gemini-3.6-flash",
         "max_tokens": 1500,
         "temperature": 0.3,
+        # Mức suy luận: tầng này chỉ diễn đạt lại JSON, để mặc định thì model
+        # tiêu phần lớn thời gian vào token suy nghĩ rồi chạm timeout.
+        "thinking_level": "low",
         # Giới hạn thời gian một lượt gọi, và ngân sách cho cả lượt sinh
         # (gồm lần sinh lại). Xem config.yaml về lý do phải có hai con số.
-        "timeout_seconds": 18,
-        "budget_seconds": 32,
+        "timeout_seconds": 25,
+        "budget_seconds": 40,
     })
     llm_api_key: str = ""
 

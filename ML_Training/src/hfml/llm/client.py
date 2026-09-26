@@ -115,11 +115,11 @@ class Answer:
 # Gọi Gemini
 # --------------------------------------------------------------------------
 def _timeout_seconds() -> float:
-    return float(CONFIG.llm.get("timeout_seconds") or 18)
+    return float(CONFIG.llm.get("timeout_seconds") or 25)
 
 
 def _budget_seconds() -> float:
-    return float(CONFIG.llm.get("budget_seconds") or 32)
+    return float(CONFIG.llm.get("budget_seconds") or 40)
 
 
 @functools.lru_cache(maxsize=1)
@@ -163,6 +163,52 @@ def is_llm_available() -> bool:
     return _client() is not None
 
 
+def _thinking_config():
+    """Mức suy luận của model, đọc từ `llm.thinking_level` / `llm.thinking_budget`.
+
+    Đây là núm vặn quyết định độ trễ. Việc của tầng này là diễn đạt lại một
+    JSON đã có sẵn kết luận và con số — không có gì để suy luận, mà mặc định
+    model vẫn tiêu ~2150 token "suy nghĩ" trước khi viết ~640 token trả lời
+    (đo được, xem ghi chú `max_tokens` trong config.yaml). Token suy luận
+    sinh tuần tự như token trả lời, nên đó là ba phần tư thời gian chờ, và là
+    lý do lượt gọi hay chạm `timeout_seconds` rồi bị server cắt bằng
+    `504 DEADLINE_EXCEEDED`.
+
+    Hai khoá vì hai thế hệ model dùng hai tham số khác nhau: `thinking_level`
+    (`minimal` / `low` / `medium` / `high`) cho Gemini 3 trở đi, còn
+    `thinking_budget` (số token, 0 = tắt) cho Gemini 2.5. Không đặt khoá nào
+    thì trả `None` và model chạy mặc định của nó.
+    """
+    level = CONFIG.llm.get("thinking_level")
+    budget = CONFIG.llm.get("thinking_budget")
+    if level is None and budget is None:
+        return None
+
+    from google.genai import types
+
+    kwargs: dict[str, Any] = {}
+    if level is not None:
+        # Enum của SDK "dễ tính": giá trị lạ chỉ cảnh báo rồi vẫn gửi lên API,
+        # và API trả 400 ở MỌI lượt — hệ thống lặng lẽ hạ cấp template, trông
+        # y hệt hết quota. Gõ nhầm trong config phải nổ ngay lúc nạp.
+        name = str(level).upper()
+        allowed = {m for m in types.ThinkingLevel.__members__
+                   if m != "THINKING_LEVEL_UNSPECIFIED"}
+        if name not in allowed:
+            raise ValueError(
+                f"llm.thinking_level = {level!r} không hợp lệ; "
+                f"chọn một trong {sorted(allowed)}")
+        kwargs["thinking_level"] = types.ThinkingLevel[name]
+    if budget is not None:
+        kwargs["thinking_budget"] = int(budget)
+    return types.ThinkingConfig(**kwargs)
+
+
+def _is_deadline_exceeded(exc: Exception) -> bool:
+    """Server cắt vì quá `timeout_seconds` — khác với mọi lỗi mạng/quota khác."""
+    return getattr(exc, "code", None) == 504 or "DEADLINE_EXCEEDED" in str(exc)
+
+
 def _call(system: str, user: str) -> dict | None:
     """Một lượt gọi Gemini, trả về JSON đã parse. `None` khi hỏng.
 
@@ -171,7 +217,10 @@ def _call(system: str, user: str) -> dict | None:
     đâu là giải thích, và phép kiểm mất độ chính xác.
 
     Quá hạn giờ cũng trả `None` như mọi lỗi khác. Với tầng gọi, "gọi mãi không
-    xong" và "gọi không được" dẫn tới cùng một việc phải làm.
+    xong" và "gọi không được" dẫn tới cùng một việc phải làm. Nhưng log thì
+    phải nói khác: `timeout_seconds` được SDK gửi lên server làm hạn chót, và
+    khi model sinh quá lâu server trả `504 DEADLINE_EXCEEDED` — đọc mã đó mà
+    tưởng Gemini sập là đi tìm sự cố ở nơi không có.
     """
     client = _client()
     if client is None:
@@ -180,6 +229,7 @@ def _call(system: str, user: str) -> dict | None:
     try:
         from google.genai import types
 
+        started = time.monotonic()
         response = client.models.generate_content(
             model=CONFIG.llm["model"],
             contents=user,
@@ -188,8 +238,10 @@ def _call(system: str, user: str) -> dict | None:
                 temperature=CONFIG.llm["temperature"],
                 max_output_tokens=CONFIG.llm["max_tokens"],
                 response_mime_type="application/json",
+                thinking_config=_thinking_config(),
             ),
         )
+        elapsed = time.monotonic() - started
 
         # Bị cắt vì hết hạn mức token là một ca RIÊNG, phải nói rõ.
         #
@@ -198,9 +250,9 @@ def _call(system: str, user: str) -> dict | None:
         # tìm lỗi ở prompt, trong khi thứ cần sửa là `max_tokens`. Đã mất một
         # lượt gỡ lỗi đúng vì chuyện này: model dùng ~2150 token suy luận cộng
         # ~640 token đầu ra, mà hạn mức đang đặt 1500.
+        usage = response.usage_metadata
         finish = response.candidates[0].finish_reason
         if finish is not None and finish.name == "MAX_TOKENS":
-            usage = response.usage_metadata
             log.warning(
                 "LLM bị cắt vì hết hạn mức token (đầu ra %s, suy luận %s, "
                 "hạn mức %s). Tăng `llm.max_tokens` trong config.yaml.",
@@ -209,11 +261,26 @@ def _call(system: str, user: str) -> dict | None:
                 CONFIG.llm["max_tokens"])
             return None
 
+        # Ghi số đo để chỉnh `thinking_level` / `timeout_seconds` bằng số thật
+        # chứ không bằng cảm giác: phần suy luận lớn hơn phần trả lời là dấu
+        # hiệu còn giảm được thời gian chờ.
+        log.info("LLM trả lời sau %.1fs — đầu ra %s token, suy luận %s token",
+                 elapsed, usage.candidates_token_count,
+                 getattr(usage, "thoughts_token_count", None) or 0)
+
         return json.loads(response.text)
     except json.JSONDecodeError as exc:
         log.warning("LLM trả về JSON hỏng: %s", exc)
     except Exception as exc:  # noqa: BLE001 — biên ngoài, mạng/quota/model
-        log.warning("Gọi LLM lỗi: %s: %s", type(exc).__name__, exc)
+        if _is_deadline_exceeded(exc):
+            log.warning(
+                "Gemini không sinh xong trong %.0fs nên server cắt (504 "
+                "DEADLINE_EXCEEDED) — không phải Gemini sập. Giảm "
+                "`llm.thinking_level` (hiện: %s) hoặc nới `llm.timeout_seconds`, "
+                "nhưng `budget_seconds` phải dưới PYTHON_ADVISOR_TIMEOUT của Laravel.",
+                _timeout_seconds(), CONFIG.llm.get("thinking_level") or "mặc định")
+        else:
+            log.warning("Gọi LLM lỗi: %s: %s", type(exc).__name__, exc)
     return None
 
 
@@ -322,8 +389,8 @@ def generate(context, understanding, budget_seconds: float | None = None) -> Ans
 
     Vì sao ngân sách nằm ở đây chứ không chỉ ở timeout mỗi lời gọi
     ----------------------------------------------------------------
-    Hai lời gọi mỗi lời 18 giây vẫn nằm trong hạn mức của chính nó, mà cộng
-    lại thì đã 36 giây — quá thứ mà `/advise` được phép tiêu. Timeout canh
+    Hai lời gọi mỗi lời 25 giây vẫn nằm trong hạn mức của chính nó, mà cộng
+    lại thì đã 50 giây — quá thứ mà `/advise` được phép tiêu. Timeout canh
     một lời gọi; ngân sách canh lời hứa với người đang chờ. Thiếu vế thứ hai
     thì mỗi lần lần đầu bị đánh trượt là một lần người dùng chờ gấp đôi rồi
     nhận về lỗi kết nối, thay vì nhận câu dựng sẵn đúng số liệu.

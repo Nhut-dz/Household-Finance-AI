@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ChevronDown, Minus, Plus } from 'lucide-react'
 import { currency } from '../lib/format'
 
@@ -246,8 +247,112 @@ export function NumberField({
 }
 
 /**
+ * Ô nhập số thập phân — giữ nguyên chuỗi người dùng đang gõ.
+ *
+ * `NumberField` KHÔNG dùng được cho việc này dù nhìn giống hệt: nó parse lại
+ * sau mỗi phím rồi hiển thị `String(value)`, nên dấu chấm vừa gõ biến mất trước
+ * khi kịp gõ chữ số thập phân — "6." hiện lại thành "6", và người dùng không
+ * bao giờ nhập nổi 6.5.
+ *
+ * Ở đây chuỗi mới là nguồn sự thật trong lúc gõ; giá trị số chỉ được đẩy ra
+ * ngoài. Việc kiểm miền giá trị để cho phía gọi làm — control này không biết
+ * mình đang nhận lãi suất hay thứ gì khác.
+ */
+export function DecimalField({
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  placeholder = 'Vui lòng nhập thông tin',
+  unit,
+}: {
+  label: string
+  value: number | null
+  onChange: (v: number | null) => void
+  error?: string
+  hint?: string
+  placeholder?: string
+  /** Đơn vị hiện mờ bên phải ô, ví dụ "%/năm". */
+  unit?: string
+}) {
+  const [text, setText] = useState(value === null ? '' : String(value))
+
+  // Đồng bộ lại khi giá trị đến TỪ BÊN NGOÀI (nạp bản ghi đã lưu, bấm "Xóa
+  // dữ liệu"). So sánh qua số chứ không qua chuỗi: "6." và "6" là cùng một giá
+  // trị, và so chuỗi thì ô tự ghi đè chính mình ngay giữa lúc người dùng gõ.
+  useEffect(() => {
+    setText((current) => {
+      const parsed = current === '' ? null : Number(current)
+
+      return parsed === value ? current : value === null ? '' : String(value)
+    })
+  }, [value])
+
+  const handleChange = (raw: string) => {
+    // Chỉ chữ số và ĐÚNG MỘT dấu chấm — "6.5.5" không phải là số dở dang, nó
+    // là số sai, và để nó lọt vào state thì ô kẹt ở giá trị null khó hiểu.
+    const cleaned = raw.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')
+    setText(cleaned)
+
+    const parsed = Number(cleaned)
+    onChange(cleaned === '' || Number.isNaN(parsed) ? null : parsed)
+  }
+
+  return (
+    <Field label={label} error={error} hint={hint}>
+      <div className="relative">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={text}
+          onChange={(e) => handleChange(e.target.value)}
+          placeholder={placeholder}
+          className={`${inputClass} ${unit ? 'pr-20' : ''}`}
+        />
+        {unit && (
+          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+            {unit}
+          </span>
+        )}
+      </div>
+    </Field>
+  )
+}
+
+/**
+ * Số tiền do hệ thống tính, người dùng chỉ đọc.
+ *
+ * Cố ý KHÔNG dựng bằng `<input disabled>`: một ô nhập bị khoá vẫn mời người ta
+ * thử bấm vào, rồi không có gì xảy ra và cũng không có gì giải thích. Một tấm
+ * thẻ thì nói ngay rằng đây là kết quả, không phải chỗ để điền.
+ */
+export function ReadOnlyMoney({
+  label,
+  value,
+  note,
+  suffix = '',
+}: {
+  label: string
+  value: number
+  /** Câu giải thích con số được tính ra sao. */
+  note: string
+  suffix?: string
+}) {
+  return (
+    <div className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
+      <p className="text-sm font-semibold text-brand-800">{label}</p>
+      <p className="mt-1 text-lg font-bold text-brand-700">
+        {value > 0 ? `${currency(value)}${suffix}` : '—'}
+      </p>
+      <p className="mt-1 text-xs text-brand-600">{note}</p>
+    </div>
+  )
+}
+
+/**
  * Khung đề mục của một nhóm trường. Trang "Thông tin khoản vay" có ba nhóm nên
- * cần ranh giới nhìn thấy được — 16 ô rải phẳng trên một lưới thì người dùng
+ * cần ranh giới nhìn thấy được — 15 ô rải phẳng trên một lưới thì người dùng
  * không biết mình đang ở đoạn nào.
  */
 export function Section({
